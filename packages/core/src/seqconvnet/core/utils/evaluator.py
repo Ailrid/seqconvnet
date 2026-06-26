@@ -163,21 +163,23 @@ class SegmentationEvaluator:
             Precision=precision_per_class.tolist(),
         )
 
-    def print_metrics(self) -> tuple[list[list[int]], SegmentationMetrics]:
-        """美观地在终端中打印分割指标表格与混淆矩阵"""
+
+    def print_metrics(self) -> tuple[list[list[int]], SegmentationMetrics, str]:
+        """计算分割指标与混淆矩阵，不直接打印，而是将美观的表格作为字符串返回"""
         metrics: SegmentationMetrics = self.compute_metrics()
+
+        # 用于存放所有文本行的列表
+        report_lines = []
 
         # =====================================================================
         # 打印分割核心指标表 (IoU, Recall, Precision)
         # =====================================================================
-        print("\n" + "=" * 66)
-        print(" SEGMENTATION EVALUATION REPORT ".center(66, "="))
-        print("=" * 66)
+        report_lines.append("\n" + "=" * 66)
+        report_lines.append(" SEGMENTATION EVALUATION REPORT ".center(66, "="))
+        report_lines.append("=" * 66)
 
         # 内部列宽分配：Class ID(14), IoU(14), Recall(14), Precision(16)
-        top_line = (
-            "┌" + "─" * 14 + "┬" + "─" * 14 + "┬" + "─" * 14 + "┬" + "─" * 16 + "┐"
-        )
+        top_line = "┌" + "─" * 14 + "┬" + "─" * 14 + "┬" + "─" * 14 + "┬" + "─" * 16 + "┐"
         mid_divider = (
             "├" + "─" * 14 + "┼" + "─" * 14 + "┼" + "─" * 14 + "┼" + "─" * 16 + "┤"
         )
@@ -185,43 +187,49 @@ class SegmentationEvaluator:
             "└" + "─" * 14 + "┴" + "─" * 14 + "┴" + "─" * 14 + "┴" + "─" * 16 + "┘"
         )
 
-        print(top_line)
-        print(
+        report_lines.append(top_line)
+        report_lines.append(
             f"│ {'Class ID':^12} │ {'IoU (%)':^12} │ {'Recall (%)':^12} │ {'Precision (%)':^14} │"
         )
-        print(mid_divider)
+        report_lines.append(mid_divider)
 
         for i in range(self.num_classes):
             iou_val = metrics.IoU[i] * 100
             rec_val = metrics.Recall[i] * 100
             prec_val = metrics.Precision[i] * 100
 
-            print(
+            report_lines.append(
                 f"│ {f'Class {i+1}':<12} │ "
                 f"{iou_val:^12.2f} │ "
                 f"{rec_val:^12.2f} │ "
                 f"{prec_val:^14.2f} │"
             )
 
-        print(mid_divider)
+        report_lines.append(mid_divider)
 
-        print(
+        report_lines.append(
             f"│ {'Mean (mAvg)':<12} │ "
             f"\033[1;32m{metrics.mIoU*100:^12.2f}\033[0m │ "
             f"{metrics.mRecall*100:^12.2f} │ "
             f"{metrics.mPrecision*100:^14.2f} │"
         )
-        print(bottom_line)
+        report_lines.append(bottom_line)
+
         # =====================================================================
         # 动态绘制混淆矩阵表 (Confusion Matrix - Percentage Normalized by Row)
         # =====================================================================
-        print("\n" + "=" * 78)
-        print(" CONFUSION MATRIX (Row: GT, Col: Pred) [% Normalized] ".center(78, "="))
-        print("=" * 78)
+        report_lines.append("\n" + "=" * 78)
+        report_lines.append(
+            " CONFUSION MATRIX (Row: GT, Col: Pred) [% Normalized] ".center(78, "=")
+        )
+        report_lines.append("=" * 78)
 
         if self.total_hist is None:
-            print(" [Warning] Confusion matrix is empty. No data accumulated yet.")
-            print("=" * 78 + "\n")
+            report_lines.append(
+                " [Warning] Confusion matrix is empty. No data accumulated yet."
+            )
+            report_lines.append("=" * 78 + "\n")
+            # 如果抛出异常前需要保留已有日志，可以在这里拼接，不过既然抛异常通常就直接中断了
             raise RuntimeError("Confusion matrix is empty. Please call update() first.")
 
         # 使用 float 类型的矩阵进行比例计算
@@ -237,12 +245,12 @@ class SegmentationEvaluator:
         cm_bottom = "└" + "─" * head_w + ("┴" + "─" * cell_w) * self.num_classes + "┘"
 
         # 打印混淆矩阵表头 (Prediction 横轴)
-        print(cm_top)
+        report_lines.append(cm_top)
         header_row = f"│ {'GT Pred':^{head_w-2}} │"
         for j in range(self.num_classes):
             header_row += f" {f'Pred {j + 1}':^{cell_w-2}} │"
-        print(header_row)
-        print(cm_mid)
+        report_lines.append(header_row)
+        report_lines.append(cm_mid)
 
         # 逐行打印混淆矩阵实体数据 (Ground Truth 纵轴)
         for i in range(self.num_classes):
@@ -270,9 +278,13 @@ class SegmentationEvaluator:
                         data_row += f" \033[90m{percentage_str:^{cell_w-2}}\033[0m │"  # 灰色暗显0%，突出错误
                     else:
                         data_row += f" {percentage_str:^{cell_w-2}} │"
-            print(data_row)
+            report_lines.append(data_row)
 
-        print(cm_bottom)
-        print("=" * 78 + "\n")
+        report_lines.append(cm_bottom)
+        report_lines.append("=" * 78 + "\n")
 
-        return hist_matrix, metrics
+        # 将所有行合并为一个大字符串
+        report_str = "\n".join(report_lines)
+
+        # 返回矩阵、指标以及文本报告
+        return hist_matrix, metrics, report_str

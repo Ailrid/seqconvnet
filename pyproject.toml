@@ -17,6 +17,8 @@ seqconvnet-preprocess = { workspace = true }
 seqconvnet-train = { workspace = true }
 torch = { index = "pytorch-cuda" }
 torchvision = { index = "pytorch-cuda" }
+virid-core = { index = "virid" }
+virid-std = { index = "virid" }
 
 [tool.hatch.build.targets.wheel]
 bypass-selection = true
@@ -28,10 +30,14 @@ url = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu124/"
 explicit = true
 
 [[tool.uv.index]]
-# name = "pypi"
-# url = "https://pypi.org/simple"name = "tsinghua"
+name = "tsinghua"
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
+
+[[tool.uv.index]]
+name = "virid"
+url = "https://pypi.org/simple"
+
 
 [build-system]
 requires = ["hatchling"]

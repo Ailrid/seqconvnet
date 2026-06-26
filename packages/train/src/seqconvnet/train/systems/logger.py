@@ -5,22 +5,31 @@ Project: seqconvnet
 """
 
 from virid.core import system, InfoMessage, WarnMessage, ErrorMessage, ViridApp
+from ..components import TrainingLogger
 
 
 @system()
-def info(message: InfoMessage) -> None:
-    print(f"Info: {message.context}")
+def info(message: InfoMessage, logger: TrainingLogger) -> None:
+    if logger.writer is None:
+        return
+    logger.writer.info(message.context)
 
 
 @system()
-def warn(message: WarnMessage) -> None:
-    print(f"Warn: {message.context}")
+def warn(message: WarnMessage, logger: TrainingLogger) -> None:
+    if logger.writer is None:
+        return
+    logger.writer.warning(message.context)
 
 
 @system()
-def error(message: ErrorMessage) -> None:
-    print(f"Error: {message.error}")
-    print(f"Error: {message.context}")
+def error(message: ErrorMessage, logger: TrainingLogger) -> None:
+    if logger.writer is None:
+        return
+    if message.error:
+        logger.writer.error(str(message.error), extra={"msg_type": "error"})
+    if message.context:
+        logger.writer.error(str(message.context), extra={"msg_type": "context"})
 
 
 def register_logger_systems(app: ViridApp) -> None:

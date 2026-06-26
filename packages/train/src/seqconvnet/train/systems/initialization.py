@@ -29,15 +29,26 @@ from ..messages.initialization import (
     CreateTransformerMessage,
     CreateRnnMessage,
     CreateDatasetMessage,
+    CreateLoggerAndCheckpointMessage,
 )
 from ..messages.training import (
     StartTrainingMessage,
 )
-from ..components import ModelConfig, EnvConfig, DatasetConfig
-from virid.core import system, ViridApp
+from ..components import (
+    ModelConfig,
+    EnvConfig,
+    DatasetConfig,
+    TrainingLogger,
+    TrainingState,
+)
+from virid.core import system, ViridApp, MessageWriter
 from virid.std import execute_block
-
 from torch.utils.data import DataLoader
+from ..util import create_logger
+import time
+import os
+import json
+from dataclasses import asdict
 
 
 class Color:
@@ -55,26 +66,23 @@ class Color:
 @system()
 def start_up(message: StartUpMessage):
     """启动训练流程"""
-    print("============ Start Up Training ============")
-    print(f"Model Params: {message.model_params}")
-    print(f"Training Params: {message.env_params}")
-    print(f"Dataset Params: {message.dataset_params}")
 
     def callback(success: bool):
         if success:
-            print("Training initialized successfully")
+            MessageWriter.info("Training initialized successfully")
         else:
-            print("Training initialized failed")
+            MessageWriter.error(RuntimeError("Training initialized failed"))
 
     with execute_block(group_id="startup", callback=callback):
 
-        if message.model_params.checkpoint_folder != "":
-            CreateTransformerMessage.send(
-                message.dataset_params,
-                message.model_params,
-                message.env_params,
-            )
-
+        CreateLoggerAndCheckpointMessage.send()
+        # 在日志初始化之后才能开始打印
+        MessageWriter.info(
+            "============ Start Up Training ============ \n"
+            f"Model Params: {json.dumps(asdict(message.model_params),indent=4, ensure_ascii=False)}\n"
+            f"Training Params: {json.dumps(asdict(message.env_params),indent=4, ensure_ascii=False)}\n"
+            f"Dataset Params: {json.dumps(asdict(message.dataset_params),indent=4, ensure_ascii=False)}\n"
+        )
         CreateDatasetMessage.send(
             message.dataset_params,
             message.model_params,
@@ -102,6 +110,36 @@ def start_up(message: StartUpMessage):
             message.env_params,
         )
         StartTrainingMessage.send()
+
+
+@system(message_type=CreateLoggerAndCheckpointMessage)
+def create_logger_and_checkpoint(
+    logger: TrainingLogger,
+    training_state: TrainingState,
+):
+    # 创建开始时间文件夹
+    logger_folder = os.path.join(
+        "./logs", time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
+    )
+    os.makedirs(logger_folder, exist_ok=True)
+    # 创建日志文件
+    log_file_path = os.path.join(logger_folder, "training.txt")
+    logger.writer = create_logger(log_file_path)
+    # 创建checkpoint文件夹
+    checkpoint_folder = os.path.join(
+        "./checkpoints",
+        # 精确到秒
+        time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime()),
+    )
+    os.makedirs(checkpoint_folder, exist_ok=True)
+    training_state.log_folder = logger_folder
+    training_state.checkpoint_folder = checkpoint_folder
+
+    MessageWriter.info(
+        "============ Create Logger And Checkpoint Done ============ \n"
+        f"Logger Folder: {logger_folder}\n"
+        f"Checkpoint Folder: {checkpoint_folder}\n"
+    )
 
 
 @system()
@@ -136,15 +174,17 @@ def create_dataset(
     dataset_config.voxel_params = dataset_params.voxel_params
     dataset_config.input_size = dataset_params.input_size
 
-    print("============ Create Dataset Done ============ ")
-    print(f"Train Las Folder: {dataset_params.train_las_folder}")
-    print(f"Test Las Folder: {dataset_params.test_las_folder}")
-    print(f"Num Classes: {dataset_params.num_classes}")
-    print(f"Iter Times: {dataset_params.iter_times}")
-    print(f"Input Size: {dataset_params.input_size}")
-    print(f"Area Size: {dataset_params.area_size}")
-    print(f"Voxel Params: {dataset_params.voxel_params}")
-    print(f"Classes Weights: {dataset_params.classes_weights}")
+    MessageWriter.info(
+        "============ Create Dataset Done ============ \n"
+        f"Train Las Folder: {dataset_params.train_las_folder}\n"
+        f"Test Las Folder: {dataset_params.test_las_folder}\n"
+        f"Num Classes: {dataset_params.num_classes}\n"
+        f"Iter Times: {dataset_params.iter_times}\n"
+        f"Input Size: {dataset_params.input_size}\n"
+        f"Area Size: {dataset_params.area_size}\n"
+        f"Voxel Params: {dataset_params.voxel_params}\n"
+        f"Classes Weights: {dataset_params.classes_weights}\n"
+    )
 
 
 @system()
@@ -165,6 +205,10 @@ def create_transformer_model(
     conv_encoder = SwinEncoder(
         model_params.d_model, model_params.d_model, dataset_params.input_size
     )
+    # conv_encoder = CustomConvEncoder(
+    #     model_params.d_model,
+    #     model_params.d_model,
+    # )
     seq_decoder = TransformerDecoder(
         dataset_params.num_classes,
         model_params.d_model,
@@ -188,17 +232,19 @@ def create_transformer_model(
         dataset_params.classes_weights,
         device=env_params.device,
     )
-    print("============ Create Transformer Model Done ============ ")
-    print(f"Max Z: { dataset_params.voxel_params.max_z}")
-    print(f"Dim Model: {model_params.d_model}")
-    print(f"Num Head: {model_params.nhead}")
-    print(f"NUm Layers: {model_params.num_layers}")
-    print(f"Dropout: {model_params.dropout}")
-    print(f"Classes Weights: {dataset_params.classes_weights}")
+    MessageWriter.info(
+        "============ Create Transformer Model Done ============ \n"
+        f"Max Z: { dataset_params.voxel_params.max_z}\n"
+        f"Dim Model: {model_params.d_model}\n"
+        f"Num Head: {model_params.nhead}\n"
+        f"NUm Layers: {model_params.num_layers}\n"
+        f"Dropout: {model_params.dropout}\n"
+        f"Classes Weights: {dataset_params.classes_weights}\n"
+    )
 
 
 @system()
-def create_model(message: CreateRnnMessage, config: ModelConfig) -> None:
+def create_rnn_model(message: CreateRnnMessage, config: ModelConfig) -> None:
     model_params = message.model_params
     env_params = message.env_params
     dataset_params = message.dataset_params
@@ -236,13 +282,14 @@ def create_model(message: CreateRnnMessage, config: ModelConfig) -> None:
         dataset_params.classes_weights,
         device=env_params.device,
     )
-    print("============ Create Rnn Model Done ============ ")
-    print(f"Max Z: { dataset_params.voxel_params.max_z}")
-    print(f"Dim Model: {model_params.d_model}")
-    print(f"Num Head: {model_params.nhead}")
-    print(f"NUm Layers: {model_params.num_layers}")
-    print(f"Dropout: {model_params.dropout}")
-    print(f"Classes Weights: {dataset_params.classes_weights}")
+    MessageWriter.info(
+        "============ Create Rnn Model Done ============ \n"
+        f"Max Z: { dataset_params.voxel_params.max_z}\n"
+        f"Dim Model: {model_params.d_model}\n"
+        f"Num Layers: {model_params.num_layers}\n"
+        f"Dropout: {model_params.dropout}\n"
+        f"Classes Weights: {dataset_params.classes_weights}\n"
+    )
 
 
 @system()
@@ -281,18 +328,21 @@ def create_env(
     )
     env_config.scheduler = scheduler
     env_config.optimizer = optimizer
-    print("============ Create Train Env Done ============ ")
-    print(f"Lr: {env_params.lr}")
-    print(f"Weight Decay: {env_params.weight_decay}")
-    print(f"Epochs: {env_params.epochs}")
-    print(f"Warmup Epochs: {env_params.warmup_epochs}")
-    print(
-        f"Device: {env_params.device}, Device Name: {torch.cuda.get_device_name(env_params.device)}"
+
+    MessageWriter.info(
+        "============ Create Train Env Done ============ \n"
+        f"Lr: {env_params.lr}"
+        f"Weight Decay: {env_params.weight_decay}\n"
+        f"Epochs: {env_params.epochs}"
+        f"Warmup Epochs: {env_params.warmup_epochs}\n"
+        f"Device: {env_params.device}, Device Name: {torch.cuda.get_device_name(env_params.device)}\n"
     )
 
 
 def register_initialization_systems(app: ViridApp):
     app.register(start_up)
     app.register(create_dataset)
-    app.register(create_model)
+    app.register(create_transformer_model)
+    app.register(create_rnn_model)
     app.register(create_env)
+    app.register(create_logger_and_checkpoint)

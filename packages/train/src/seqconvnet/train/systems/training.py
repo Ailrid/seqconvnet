@@ -15,7 +15,7 @@ from ..messages.training import (
     EvalMessage,
 )
 from ..components import ModelConfig, EnvConfig, DatasetConfig, TrainingState
-from virid.core import system, ViridApp
+from virid.core import system, ViridApp, MessageWriter
 from virid.std import execute_block
 from tqdm import tqdm
 from seqconvnet.core import TrainLoader, refer_mat
@@ -48,7 +48,7 @@ def one_epoch(
     optimizer = env_config.optimizer
     scheduler = env_config.scheduler
     model.train()
-    print(
+    MessageWriter.info(
         f"\n{Color.ORANGE}{Color.BOLD} ------------------------------- Train  -------------------------------- {Color.END}\n"
     )
     with tqdm(
@@ -74,9 +74,11 @@ def one_epoch(
             pbar.set_description(f"Loss: {np.mean(l_statistic):.5f}")
 
     scheduler.step()
-    evaluator.print_metrics()
-    # 最后五个 epoch 关闭数据增强
-    if env_config.epochs - message.epoch <= 5:
+    _, _, report_str = evaluator.print_metrics()
+    MessageWriter.info(report_str)
+
+    # 最后10个 epoch 关闭数据增强
+    if env_config.epochs - message.epoch <= 10:
         cast(TrainLoader, dataset_config.train_loader.dataset).toggle_enhance()
 
 
@@ -86,12 +88,13 @@ def eval_net(
     dataset_config: DatasetConfig,
     model_config: ModelConfig,
     env_config: EnvConfig,
+    training_state: TrainingState,
 ) -> None:
     evaluator = env_config.evaluator
     evaluator.reset()
     model = model_config.model
     model.eval()
-    print(
+    MessageWriter.info(
         f"\n{Color.BLUE}{Color.BOLD} ------------------------------- Test -------------------------------- {Color.END}\n"
     )
     with torch.no_grad():
@@ -111,7 +114,10 @@ def eval_net(
                 )
                 evaluator.update(pred_label, label_mat, valid_len_mat)
 
-        evaluator.print_metrics()
+        hist_matrix, metrics, report_str = evaluator.print_metrics()
+        training_state.hist_matrix = hist_matrix
+        training_state.metrics = metrics
+        MessageWriter.info(report_str)
 
 
 @system()
@@ -130,12 +136,14 @@ def start_training(env_config: EnvConfig, train_state: TrainingState) -> None:
                 return
             StartTrainingMessage.send()
         else:
-            print(
-                f"\n{Color.RED}{Color.BOLD} ------------------------------- Epoch {train_state.current_epoch} Failed -------------------------------- {Color.END}\n"
+            MessageWriter.error(
+                RuntimeError(
+                    f"\n{Color.RED}{Color.BOLD} ------------------------------- Epoch {train_state.current_epoch} Failed -------------------------------- {Color.END}\n"
+                )
             )
 
     # Start 绿色 + 加粗
-    print(
+    MessageWriter.info(
         f"\n{Color.GREEN}{Color.BOLD} ------------------------------- Epoch {train_state.current_epoch} Start -------------------------------- {Color.END}\n"
     )
 

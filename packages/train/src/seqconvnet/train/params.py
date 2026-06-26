@@ -15,7 +15,6 @@ class ModelParameters:
     nhead: int = 4
     num_layers: int = 2
     dropout: float = 0.1
-    checkpoint_folder: str = ""
 
 
 @dataclass()

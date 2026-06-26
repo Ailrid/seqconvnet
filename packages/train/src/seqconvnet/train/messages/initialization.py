@@ -45,3 +45,7 @@ class CreateEvnMessage(TimerMessage):
     dataset_params: DatasetParameters
     model_params: ModelParameters
     env_params: EnvParameters
+
+
+@dataclass
+class CreateLoggerAndCheckpointMessage(TimerMessage): ...

@@ -6,13 +6,14 @@ Project: seqconvnet
 
 from virid.core import component, ViridApp
 from dataclasses import dataclass
+import logging
 
 
 @component()
 @dataclass()
-class Logger:
-    log_writer = None
+class TrainingLogger:
+    writer: logging.Logger = None  # type: ignore
 
 
 def bind_logger_components(app: ViridApp):
-    app.bind(Logger)
+    app.bind(TrainingLogger)
