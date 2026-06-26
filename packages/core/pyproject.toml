@@ -1,0 +1,17 @@
+[project]
+name = "seqconvnet-core"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "laspy",
+    "torch",
+    "tqdm",
+]
+[tool.hatch.build.targets.wheel]
+packages = ["src/seqconvnet"]
+layout = "src"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+

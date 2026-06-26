@@ -1,0 +1,8 @@
+{
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/packages/core/src",
+        "${workspaceFolder}/packages/preprocess/src",
+        "${workspaceFolder}/packages/train/src"
+    ],
+    "python.analysis.useLibraryCodeForTypes": true
+}

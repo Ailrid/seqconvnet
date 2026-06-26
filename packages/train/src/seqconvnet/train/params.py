@@ -1,0 +1,42 @@
+"""
+Copyright (c) 2026-present Ailrid.
+Licensed under the Apache License, Version 2.0.
+Project: seqconvnet
+"""
+
+from seqconvnet.core import VoxelParameters
+from dataclasses import dataclass, field
+
+
+@dataclass()
+class ModelParameters:
+    model_type: str = "transformer"
+    d_model: int = 128
+    nhead: int = 4
+    num_layers: int = 2
+    dropout: float = 0.1
+    checkpoint_folder: str = ""
+
+
+@dataclass()
+class DatasetParameters:
+    train_las_folder: str = ""
+    test_las_folder: str = ""
+    # 从1开始
+    num_classes: int = 8
+    classes_weights: list[float] = field(default_factory=list)
+    batch_size: int = 1
+    num_workers: int = 1
+    iter_times: int = 1
+    input_size: int = 128
+    area_size: float = 128
+    voxel_params: VoxelParameters = field(default_factory=VoxelParameters)
+
+
+@dataclass()
+class EnvParameters:
+    lr: float = 1e-4
+    epochs: int = 100
+    warmup_epochs: int = 5
+    weight_decay: float = 0.05
+    device: str = "cpu"

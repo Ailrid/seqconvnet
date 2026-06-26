@@ -1,0 +1,96 @@
+"""
+Copyright (c) 2026-present Ailrid.
+Licensed under the Apache License, Version 2.0.
+Project: seqconvnet
+"""
+
+from dataclasses import dataclass
+import torch
+from typing import Annotated, TypeAlias
+
+
+Tensor5D: TypeAlias = Annotated[torch.Tensor, "Shape: (B, D, S, R, C)"]
+Tensor4D: TypeAlias = Annotated[torch.Tensor, "Shape: (B, M, R, C)"]
+Tensor3D: TypeAlias = Annotated[torch.Tensor, "Shape: (B, D, S)"]
+Tensor2D: TypeAlias = Annotated[torch.Tensor, "Shape: (B, D)"]
+Tensor1D: TypeAlias = Annotated[torch.Tensor, "Shape: (B,)"]
+
+
+@dataclass
+class LasPoints:
+    # n*3的float32矩阵
+    points: Tensor2D
+    # n*1的int32矩阵
+    classifications: Tensor2D
+    # las文件路径
+    path: str
+
+
+# @dataclass
+# class LasMat:
+#     """
+#     LAS数据矩阵
+#     """
+
+#     input_mat: Tensor3D
+#     label_mat: Tensor3D
+#     valid_len_mat: Tensor3D
+#     teach_mat: Tensor3D
+
+
+@dataclass
+class DataMat:
+    """
+    数据矩阵
+    """
+
+    # 输入矩阵和可用长度矩阵
+    input_mat: Tensor3D
+    valid_len_mat: Tensor3D
+    # 其他需要保留的中间信息
+    x_indices: Tensor1D
+    y_indices: Tensor1D
+    z_indices: Tensor1D
+    full_indices: Tensor1D
+    sort_index: Tensor3D
+    num_rows: int
+    num_cols: int
+    max_z: int
+    max_z_voxel: int
+
+
+@dataclass
+class LabelMat:
+    """
+    标签矩阵
+    """
+
+    label_mat: Tensor3D
+    teach_mat: Tensor3D
+
+
+@dataclass
+class VoxelParameters:
+    """
+    数据集大小参数
+    """
+
+    xy_resolution: float = 0.5
+    z_resolution: float = 0.5
+    max_z: int = 64
+    min_rows: int = 128
+    min_cols: int = 128
+
+
+@dataclass
+class SegmentationMetrics:
+    """
+    语义分割指标
+    """
+
+    mIoU: float
+    mRecall: float  # 平均召回率
+    mPrecision: float  # 平均精确率
+    IoU: list[float]
+    Recall: list[float]
+    Precision: list[float]
