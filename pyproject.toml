@@ -36,3 +36,12 @@ default = true
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+
+[tool.pyright]
+extraPaths = [
+    "packages/core/src",
+    "packages/preprocess/src",
+    "packages/train/src"
+]
+useLibraryCodeForTypes = true

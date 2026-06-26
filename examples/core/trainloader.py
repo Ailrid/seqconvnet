@@ -6,7 +6,7 @@ Project: seqconvnet
 
 # 测试训练加载器是否能正常工作
 
-from seqconvnet.core import TrainLoader, Tensor3D
+from seqconvnet.core import TrainLoader, Tensor3D, VoxelParameters
 import laspy
 import torch
 import numpy as np
