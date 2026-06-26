@@ -1,3 +1,9 @@
+"""
+Copyright (c) 2026-present Ailrid.
+Licensed under the Apache License, Version 2.0.
+Project: seqconvnet
+"""
+
 from torch.nn import Module
 from ...structs import Tensor4D
 from .transformer import TransformerEncoder, TransformerDecoder, TransformerClassifier
