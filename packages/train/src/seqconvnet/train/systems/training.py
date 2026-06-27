@@ -131,7 +131,7 @@ def checkpoint(
 def start_training(env_config: EnvConfig, train_state: TrainingState) -> None:
     def callback(success: bool):
         if success:
-            # 重点重新发送该消息以开启下一个轮训练
+            # 敲重点，重新发送该消息以开启下一个轮训练
             if train_state.current_epoch == env_config.epochs:
                 return
             StartTrainingMessage.send()

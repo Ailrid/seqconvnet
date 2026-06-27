@@ -143,9 +143,7 @@ def create_logger_and_checkpoint(
 
 
 @system()
-def create_dataset(
-    message: CreateDatasetMessage, dataset_config: DatasetConfig
-) -> None:
+def create_dataset(message: CreateDatasetMessage, app: ViridApp) -> None:
     dataset_params = message.dataset_params
 
     train_loader = DataLoader(
@@ -168,12 +166,16 @@ def create_dataset(
         batch_size=dataset_params.batch_size,
         num_workers=dataset_params.num_workers,
     )
-    dataset_config.train_loader = train_loader
-    dataset_config.test_loader = test_loader
-    dataset_config.num_classes = dataset_params.num_classes
-    dataset_config.voxel_params = dataset_params.voxel_params
-    dataset_config.input_size = dataset_params.input_size
-
+    app.spawn(
+        DatasetConfig(
+            batch_size=dataset_params.batch_size,
+            input_size=dataset_params.input_size,
+            train_loader=train_loader,
+            test_loader=test_loader,
+            voxel_params=dataset_params.voxel_params,
+            num_classes=dataset_params.num_classes,
+        )
+    )
     MessageWriter.info(
         "============ Create Dataset Done ============ \n"
         f"Train Las Folder: {dataset_params.train_las_folder}\n"
@@ -188,9 +190,7 @@ def create_dataset(
 
 
 @system()
-def create_transformer_model(
-    message: CreateTransformerMessage, config: ModelConfig
-) -> None:
+def create_transformer_model(message: CreateTransformerMessage, app: ViridApp) -> None:
     model_params = message.model_params
     env_params = message.env_params
     dataset_params = message.dataset_params
@@ -224,13 +224,16 @@ def create_transformer_model(
     model = TransformerShell(seq_encoder, conv_encoder, seq_decoder, classifier).to(
         env_params.device
     )
-    # 尝试加载检查点
-    # model.load_checkpoint(model_params.checkpoint_folder)
-    config.model = model
-    config.loss = SoftDiceAndFocalLoss(
+    loss = SoftDiceAndFocalLoss(
         dataset_params.num_classes,
         dataset_params.classes_weights,
         device=env_params.device,
+    )
+    app.spawn(
+        ModelConfig(
+            model=model,
+            loss=loss,
+        )
     )
     MessageWriter.info(
         "============ Create Transformer Model Done ============ \n"
@@ -244,7 +247,7 @@ def create_transformer_model(
 
 
 @system()
-def create_rnn_model(message: CreateRnnMessage, config: ModelConfig) -> None:
+def create_rnn_model(message: CreateRnnMessage, app: ViridApp) -> None:
     model_params = message.model_params
     env_params = message.env_params
     dataset_params = message.dataset_params
@@ -275,12 +278,16 @@ def create_rnn_model(message: CreateRnnMessage, config: ModelConfig) -> None:
     model = RnnShell(seq_encoder, conv_encoder, seq_decoder, classifier).to(
         env_params.device
     )
-    # 尝试加载检查点
-    config.model = model
-    config.loss = SoftDiceAndFocalLoss(
+    loss = SoftDiceAndFocalLoss(
         dataset_params.num_classes,
         dataset_params.classes_weights,
         device=env_params.device,
+    )
+    app.spawn(
+        ModelConfig(
+            model=model,
+            loss=loss,
+        )
     )
     MessageWriter.info(
         "============ Create Rnn Model Done ============ \n"
@@ -294,16 +301,10 @@ def create_rnn_model(message: CreateRnnMessage, config: ModelConfig) -> None:
 
 @system()
 def create_env(
-    message: CreateEvnMessage, env_config: EnvConfig, model_config: ModelConfig
+    message: CreateEvnMessage, app: ViridApp, model_config: ModelConfig
 ) -> None:
     env_params = message.env_params
-    env_config.epochs = env_params.epochs
-    env_config.warmup_epochs = env_params.warmup_epochs
-    env_config.lr = env_params.lr
-    env_config.device = env_params.device
-    env_config.evaluator = SegmentationEvaluator(
-        message.dataset_params.num_classes, True
-    )
+
     optimizer = optim.AdamW(
         model_config.model.parameters(),
         lr=env_params.lr,
@@ -326,8 +327,19 @@ def create_env(
         schedulers=[warmup_scheduler, cosine_scheduler],
         milestones=[env_params.warmup_epochs],
     )
-    env_config.scheduler = scheduler
-    env_config.optimizer = optimizer
+
+    evaluator = SegmentationEvaluator(message.dataset_params.num_classes, True)
+    app.spawn(
+        EnvConfig(
+            lr=env_params.lr,
+            epochs=env_params.epochs,
+            warmup_epochs=env_params.warmup_epochs,
+            evaluator=evaluator,
+            scheduler=scheduler,
+            optimizer=optimizer,
+            device=env_params.device,
+        )
+    )
 
     MessageWriter.info(
         "============ Create Train Env Done ============ \n"

@@ -10,31 +10,6 @@ from ..structs import Tensor3D, DataMat, Tensor1D, Tensor4D, VoxelParameters
 from ..nn.interface import Network
 from ..dataloader.supervised import PredLoader
 import laspy
-# import torch.nn.functional as F
-
-# def get_label_from_mat(label_mat: Tensor3D, data_mat: DataMat, device: str) -> Tensor1D:
-#     """从标签矩阵里获得每个点的结果"""
-#     label_mat = label_mat.permute(1, 2, 0).to(device)
-
-#     # 计算需要补多少个零
-#     current_s = label_mat.shape[2]
-#     target_s = data_mat.max_z + 1
-#     pad_size = max(0, target_s - current_s)
-
-#     # 给最后一个维度（Z轴）的后面补 pad_size 个零
-#     pred_mat = F.pad(label_mat, (0, pad_size, 0, 0, 0, 0), mode="constant", value=0)
-
-#     # 剩下的逻辑保持你原来的不变，但去掉了繁琐的手动赋值
-#     inverse_indices = torch.argsort(data_mat.sort_index.to(device))
-#     total_label_mat = torch.take_along_dim(pred_mat, inverse_indices, dim=-1)
-
-#     pred_point_label = total_label_mat.contiguous()[
-#         data_mat.x_indices.to(device),
-#         data_mat.y_indices.to(device),
-#         data_mat.z_indices.to(device),
-#     ]
-#     return pred_point_label
-
 
 def get_label_from_mat(label_mat: Tensor3D, data_mat: DataMat, device: str) -> Tensor1D:
     """从标签矩阵里获得每个点的结果"""

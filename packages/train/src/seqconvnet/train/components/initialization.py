@@ -21,34 +21,28 @@ from torch.utils.data import DataLoader
 @component()
 @dataclass()
 class ModelConfig:
-    model: Network = None  # type: ignore
-    loss: SoftDiceAndFocalLoss = None  # type: ignore
+    model: Network
+    loss: SoftDiceAndFocalLoss
 
 
 @component()
 @dataclass()
 class DatasetConfig:
-    batch_size: int = 1
-    input_size: int = 128
-    train_loader: DataLoader[TrainLoader] = None  # type: ignore
-    test_loader: DataLoader[TestLoader] = None  # type: ignore
-    voxel_params: VoxelParameters = None  # type: ignore
+    batch_size: int
+    input_size: int
+    train_loader: DataLoader[TrainLoader]
+    test_loader: DataLoader[TestLoader]
+    voxel_params: VoxelParameters
     num_classes: int = 0
 
 
 @component()
 @dataclass()
 class EnvConfig:
-    lr: float = 1e-4
-    epochs: int = 100
-    warmup_epochs: int = 5
-    evaluator: SegmentationEvaluator = None  # type: ignore
-    optimizer: torch.optim.Optimizer = None  # type: ignore
-    scheduler: torch.optim.lr_scheduler.SequentialLR = None  # type: ignore
+    lr: float
+    epochs: int
+    warmup_epochs: int
+    evaluator: SegmentationEvaluator
+    optimizer: torch.optim.Optimizer
+    scheduler: torch.optim.lr_scheduler.SequentialLR
     device: str = "cpu"
-
-
-def bind_initialization_components(app: ViridApp):
-    app.bind(ModelConfig)
-    app.bind(DatasetConfig)
-    app.bind(EnvConfig)

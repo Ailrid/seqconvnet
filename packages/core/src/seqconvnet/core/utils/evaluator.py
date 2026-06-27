@@ -171,9 +171,7 @@ class SegmentationEvaluator:
         # 用于存放所有文本行的列表
         report_lines = []
 
-        # =====================================================================
         # 打印分割核心指标表 (IoU, Recall, Precision)
-        # =====================================================================
         report_lines.append("\n" + "=" * 66)
         report_lines.append(" SEGMENTATION EVALUATION REPORT ".center(66, "="))
         report_lines.append("=" * 66)
@@ -215,9 +213,7 @@ class SegmentationEvaluator:
         )
         report_lines.append(bottom_line)
 
-        # =====================================================================
         # 动态绘制混淆矩阵表 (Confusion Matrix - Percentage Normalized by Row)
-        # =====================================================================
         report_lines.append("\n" + "=" * 78)
         report_lines.append(
             " CONFUSION MATRIX (Row: GT, Col: Pred) [% Normalized] ".center(78, "=")
