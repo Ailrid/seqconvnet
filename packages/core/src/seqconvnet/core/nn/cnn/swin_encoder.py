@@ -300,9 +300,6 @@ def window_reverse(windows, window_size, H, W):
     return x
 
 
-# ==========================================
-# 2. 核心组件：基于窗口的常规/滑动自注意力 (W-MSA / SW-MSA)
-# ==========================================
 class WindowAttention(nn.Module):
     def __init__(self, dim, window_size, num_heads):
         super().__init__()
@@ -332,7 +329,7 @@ class WindowAttention(nn.Module):
         # 算 Attention Score
         attn = (q @ k.transpose(-2, -1)) * self.scale
 
-        # 🟢 核心细节：如果存在滑动窗口 Mask，强行斩断跨边缘的不合理注意力
+        # 如果存在滑动窗口 Mask，强行斩断跨边缘的不合理注意力
         if mask is not None:
             nW = mask.shape[0]
             # 把 Batch 维度拆开，把 Mask 加到对应的窗口上
@@ -362,9 +359,6 @@ class Mlp(nn.Module):
         return self.fc2(self.act(self.fc1(x)))
 
 
-# ==========================================
-# 3. 黄金组合：一个完整的 Swin 块（包含 W-MSA + SW-MSA）
-# ==========================================
 class SwinTransformerBlock(nn.Module):
     def __init__(self, dim, input_resolution, num_heads, window_size=8):
         super().__init__()

@@ -63,7 +63,6 @@ def test_train_loader():
         iter_times=1,
         input_size=128,
         voxel_params=voxel_params,
-        device=device,
     )
     loader = DataLoader(loader, batch_size=1)
 

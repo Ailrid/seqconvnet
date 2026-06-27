@@ -55,7 +55,7 @@ StartUpMessage.send(
         ),
     ),
     model_params=ModelParameters(
-        model_type="rnn",
+        model_type="transformer",
         d_model=16,  # transformer 的 d_model 或者 rnn 的 hidden_size
         nhead=2,  # transformer 的 nhead
         num_layers=2,  # transformer 的 num_layers
