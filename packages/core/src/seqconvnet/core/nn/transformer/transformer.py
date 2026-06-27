@@ -93,7 +93,7 @@ class TransformerDecoder(nn.Module):
             nn.Linear(d_model * 2, d_model), nn.GELU(), nn.Dropout(dropout)
         )
 
-        # 🟢 核心升级：引入标准 Transformer Encoder 作为一个序列精炼器
+        # 引入标准 Transformer Encoder 作为一个序列精炼器
         # 它的任务是在融合空间特征后，替代你以前的“第二个 GRU”，在 Z 轴（S 维度）上做纵向全序列交互
         decoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model,

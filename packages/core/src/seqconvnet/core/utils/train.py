@@ -65,24 +65,28 @@ def montage(
 
 
 def enhance(
-    data_mat: DataMat,
-    label_mat: LabelMat,
-    other_data_mat: DataMat,
-    other_label_mat: LabelMat,
+    input_mat: Tensor3D,
+    valid_len_mat: Tensor3D,
+    label_mat: Tensor3D,
+    teach_mat: Tensor3D,
+    other_input_mat: Tensor3D,
+    other_valid_len_mat: Tensor3D,
+    other_label_mat: Tensor3D,
+    other_teach_mat: Tensor3D,
     input_size: int,
 ):
     # 组装两个独立样本的组件群
     group_A = [
-        data_mat.input_mat,
-        data_mat.valid_len_mat,
-        label_mat.label_mat,
-        label_mat.teach_mat,
+        input_mat,
+        valid_len_mat,
+        label_mat,
+        teach_mat,
     ]
     group_B = [
-        other_data_mat.input_mat,
-        other_data_mat.valid_len_mat,
-        other_label_mat.label_mat,
-        other_label_mat.teach_mat,
+        other_input_mat,
+        other_valid_len_mat,
+        other_label_mat,
+        other_teach_mat,
     ]
 
     # 计算合并画布所需的最大 dim
@@ -140,23 +144,28 @@ def enhance(
     )
 
 
-def get_las_mat(data_mat: DataMat, label_mat: LabelMat, input_size: int):
-    if data_mat.num_cols < input_size or data_mat.num_rows < input_size:
-        raise ValueError("The input size is too large.")
+def get_las_mat(
+    input_mat: Tensor3D,
+    valid_len_mat: Tensor3D,
+    label_mat: Tensor3D,
+    teach_mat: Tensor3D,
+    input_size: int,
+):
+    _, num_rows, num_cols = input_mat.shape
 
-    start_row = torch.randint(0, data_mat.num_rows - input_size, (1,))[0]
-    start_col = torch.randint(0, data_mat.num_cols - input_size, (1,))[0]
+    start_row = torch.randint(0, num_rows - input_size, (1,))[0]
+    start_col = torch.randint(0, num_cols - input_size, (1,))[0]
 
-    area_input_mat = data_mat.input_mat[
+    area_input_mat = input_mat[
         :, start_row : start_row + input_size, start_col : start_col + input_size
     ]
-    area_valid_len_mat = data_mat.valid_len_mat[
+    area_valid_len_mat = valid_len_mat[
         :, start_row : start_row + input_size, start_col : start_col + input_size
     ]
-    area_label_mat = label_mat.label_mat[
+    area_label_mat = label_mat[
         :, start_row : start_row + input_size, start_col : start_col + input_size
     ]
-    area_teach_mat = label_mat.teach_mat[
+    area_teach_mat = teach_mat[
         :, start_row : start_row + input_size, start_col : start_col + input_size
     ]
 

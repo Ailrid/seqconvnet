@@ -52,15 +52,15 @@ class TrainLoader(IterableDataset):
         iter_times: int,
         input_size: int,
         voxel_params: VoxelParameters,
-        device: str,
     ):
         self.iter_times = iter_times
         self.data_folder = os.path.join(root_folder, "data")
         self.label_folder = os.path.join(root_folder, "label")
-        self.file_list = [f for f in os.listdir(self.data_folder) if f.endswith(".las")]
+        self.file_list = [
+            f for f in os.listdir(self.data_folder) if f.endswith(".input")
+        ]
         self.input_size = input_size
         self.voxel_params = voxel_params
-        self.device = device
         self.enhance_key = True
 
     def toggle_enhance(self):
@@ -72,26 +72,37 @@ class TrainLoader(IterableDataset):
     def __iter__(self):
         if self.enhance_key:
             for _ in range(len(self.file_list)):
-                _, data_mat, label_mat = self.rand_read()
-                _, other_data_mat, other_label_mat = self.rand_read()
+                data_mat, valid_len_mat, label_mat, teach_mat = self.rand_read()
+                (
+                    other_data_mat,
+                    other_valid_len_mat,
+                    other_label_mat,
+                    other_teach_mat,
+                ) = self.rand_read()
                 # 迭代 iter_times 次
                 for _ in range(self.iter_times):
                     yield enhance(
                         data_mat,
+                        valid_len_mat,
                         label_mat,
+                        teach_mat,
                         other_data_mat,
+                        other_valid_len_mat,
                         other_label_mat,
+                        other_teach_mat,
                         self.input_size,
                     )
         else:
             # 最后几个不使用数据增强的迭代
             for _ in range(len(self.file_list)):
-                _, data_mat, label_mat = self.rand_read()
+                data_mat, valid_len_mat, label_mat, teach_mat = self.rand_read()
                 # 迭代 iter_times 次
                 for _ in range(self.iter_times):
                     yield get_las_mat(
                         data_mat,
+                        valid_len_mat,
                         label_mat,
+                        teach_mat,
                         self.input_size,
                     )
 
@@ -99,20 +110,23 @@ class TrainLoader(IterableDataset):
         """随机读取一个文件的数据和标签"""
         file_idx = torch.randint(0, len(self.file_list), (1,))[0]
         file_name = self.file_list[file_idx]
-        file_path = os.path.join(self.data_folder, file_name)
+        data_path = os.path.join(self.data_folder, file_name)
+        valid_len_path = os.path.join(
+            self.data_folder, file_name.replace(".input", ".valid_len")
+        )
         label_path = os.path.join(
-            self.label_folder, file_name.replace(".las", ".label")
+            self.label_folder, file_name.replace(".input", ".label")
         )
         teach_path = os.path.join(
-            self.label_folder, file_name.replace(".las", ".teach")
+            self.label_folder, file_name.replace(".input", ".teach")
         )
-        las_data = read_las_file(file_path)
-        # 加载数据
-        data_mat = generate_data(las_data, self.voxel_params, self.device)
-        label_mat = torch.load(label_path).to(self.device)
-        teach_mat = torch.load(teach_path).to(self.device)
-        return file_name, data_mat, LabelMat(label_mat, teach_mat)
 
+        # 加载数据
+        data_mat = torch.load(data_path)
+        valid_len_mat = torch.load(valid_len_path)
+        label_mat = torch.load(label_path)
+        teach_mat = torch.load(teach_path)
+        return data_mat, valid_len_mat, label_mat, teach_mat
 
 
 class TestLoader(IterableDataset):
@@ -124,13 +138,13 @@ class TestLoader(IterableDataset):
         self,
         root_folder: str,
         voxel_params: VoxelParameters,
-        device: str,
     ):
         self.data_folder = os.path.join(root_folder, "data")
         self.label_folder = os.path.join(root_folder, "label")
-        self.file_list = [f for f in os.listdir(self.data_folder) if f.endswith(".las")]
+        self.file_list = [
+            f for f in os.listdir(self.data_folder) if f.endswith(".input")
+        ]
         self.voxel_params = voxel_params
-        self.device = device
 
     def __len__(self):
         return len(self.file_list)
@@ -139,13 +153,16 @@ class TestLoader(IterableDataset):
         """顺序读取一个文件的数据和标签"""
         for file_idx in range(len(self.file_list)):
             file_name = self.file_list[file_idx]
-            file_path = os.path.join(self.data_folder, file_name)
-            label_path = os.path.join(
-                self.label_folder, file_name.replace(".las", ".label")
+            data_path = os.path.join(self.data_folder, file_name)
+            valid_len_path = os.path.join(
+                self.data_folder, file_name.replace(".input", ".valid_len")
             )
-            las_data = read_las_file(file_path)
+            label_path = os.path.join(
+                self.label_folder, file_name.replace(".input", ".label")
+            )
             # 加载数据
-            data_mat = generate_data(las_data, self.voxel_params, self.device)
-            label_mat = torch.load(label_path).to(self.device)
+            input_mat = torch.load(data_path)
+            valid_len_mat = torch.load(valid_len_path)
+            label_mat = torch.load(label_path)
 
-            yield (data_mat.input_mat, data_mat.valid_len_mat, label_mat)
+            yield (input_mat, valid_len_mat, label_mat)

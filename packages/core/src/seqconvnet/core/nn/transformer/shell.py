@@ -26,7 +26,9 @@ class TransformerShell(Network):
         self.seq_decoder = seq_decoder
         self.classifier: Module = classifier
 
-    def forward(self, input_mat: Tensor4D, valid_len_mat: Tensor4D):
+    def forward(
+        self, input_mat: Tensor4D, valid_len_mat: Tensor4D, _teach_mat: Tensor4D
+    ):
         seq_state = self.seq_encoder(
             input_mat, valid_len_mat
         )  # [batch_size*num_rows*num_cols,d_model]
@@ -38,6 +40,6 @@ class TransformerShell(Network):
 
     @torch.no_grad()
     def refer(self, input_mat: Tensor4D, valid_len_mat: Tensor4D):
-        pred = self.forward(input_mat, valid_len_mat)
+        pred = self.forward(input_mat, valid_len_mat, valid_len_mat)
         output = pred.argmax(dim=1) + 1
         return output * valid_len_mat

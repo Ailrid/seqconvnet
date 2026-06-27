@@ -13,7 +13,7 @@ from seqconvnet.core import (
     SegmentationEvaluator,
     SoftDiceAndFocalLoss,
 )
-from virid.core import component, ViridApp
+from virid.core import component
 from dataclasses import dataclass
 from torch.utils.data import DataLoader
 
@@ -33,7 +33,8 @@ class DatasetConfig:
     train_loader: DataLoader[TrainLoader]
     test_loader: DataLoader[TestLoader]
     voxel_params: VoxelParameters
-    num_classes: int = 0
+    num_classes: int
+    num_workers: int
 
 
 @component()
@@ -45,4 +46,4 @@ class EnvConfig:
     evaluator: SegmentationEvaluator
     optimizer: torch.optim.Optimizer
     scheduler: torch.optim.lr_scheduler.SequentialLR
-    device: str = "cpu"
+    device: str

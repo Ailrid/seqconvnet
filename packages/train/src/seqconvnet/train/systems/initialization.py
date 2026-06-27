@@ -152,7 +152,6 @@ def create_dataset(message: CreateDatasetMessage, app: ViridApp) -> None:
             dataset_params.iter_times,
             dataset_params.input_size,
             dataset_params.voxel_params,
-            message.env_params.device,
         ),
         batch_size=dataset_params.batch_size,
         num_workers=dataset_params.num_workers,
@@ -161,10 +160,8 @@ def create_dataset(message: CreateDatasetMessage, app: ViridApp) -> None:
         TestLoader(
             dataset_params.test_las_folder,
             dataset_params.voxel_params,
-            message.env_params.device,
         ),
         batch_size=dataset_params.batch_size,
-        num_workers=dataset_params.num_workers,
     )
     app.spawn(
         DatasetConfig(
@@ -174,6 +171,7 @@ def create_dataset(message: CreateDatasetMessage, app: ViridApp) -> None:
             test_loader=test_loader,
             voxel_params=dataset_params.voxel_params,
             num_classes=dataset_params.num_classes,
+            num_workers=dataset_params.num_workers,
         )
     )
     MessageWriter.info(
@@ -201,10 +199,10 @@ def create_transformer_model(message: CreateTransformerMessage, app: ViridApp) -
         model_params.nhead,
         model_params.num_layers,
         model_params.dropout,
-    )
+    ).to(env_params.device)
     conv_encoder = SwinEncoder(
         model_params.d_model, model_params.d_model, dataset_params.input_size
-    )
+    ).to(env_params.device)
     # conv_encoder = CustomConvEncoder(
     #     model_params.d_model,
     #     model_params.d_model,
@@ -215,11 +213,11 @@ def create_transformer_model(message: CreateTransformerMessage, app: ViridApp) -
         model_params.nhead,
         model_params.num_layers,
         model_params.dropout,
-    )
+    ).to(env_params.device)
     classifier = TransformerClassifier(
         model_params.d_model,
         dataset_params.num_classes,
-    )
+    ).to(env_params.device)
 
     model = TransformerShell(seq_encoder, conv_encoder, seq_decoder, classifier).to(
         env_params.device
@@ -258,22 +256,22 @@ def create_rnn_model(message: CreateRnnMessage, app: ViridApp) -> None:
         model_params.d_model,
         model_params.num_layers,
         model_params.dropout,
-    )
+    ).to(env_params.device)
     conv_encoder = CustomConvEncoder(
         model_params.num_layers * model_params.d_model,
         model_params.num_layers * model_params.d_model,
-    )
+    ).to(env_params.device)
     seq_decoder = RnnDecoder(
         dataset_params.num_classes,
         2 * model_params.d_model,
         model_params.d_model,
         model_params.num_layers,
         model_params.dropout,
-    )
+    ).to(env_params.device)
     classifier = RnnClassifier(
         dataset_params.num_classes,
         model_params.d_model,
-    )
+    ).to(env_params.device)
 
     model = RnnShell(seq_encoder, conv_encoder, seq_decoder, classifier).to(
         env_params.device
@@ -343,9 +341,9 @@ def create_env(
 
     MessageWriter.info(
         "============ Create Train Env Done ============ \n"
-        f"Lr: {env_params.lr}"
+        f"Lr: {env_params.lr}\n"
         f"Weight Decay: {env_params.weight_decay}\n"
-        f"Epochs: {env_params.epochs}"
+        f"Epochs: {env_params.epochs}\n"
         f"Warmup Epochs: {env_params.warmup_epochs}\n"
         f"Device: {env_params.device}, Device Name: {torch.cuda.get_device_name(env_params.device)}\n"
     )

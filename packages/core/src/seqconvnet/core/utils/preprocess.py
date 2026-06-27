@@ -313,23 +313,31 @@ def preprocess_las_file(
         data_mat = generate_data(chunk, params, device)
         label_mat = generate_label(chunk, data_mat, num_classes, device)
         # 写入切块的数据和标签
-        header = laspy.LasHeader(point_format=3, version="1.2")
-        header.offsets = chunk.points.cpu().numpy().mean(axis=0)
-        header.scales = np.array([0.01, 0.01, 0.01])
-        chunk_las = laspy.LasData(header=header)
-        chunk_points = chunk.points.cpu().numpy()
-        chunk_las.x = chunk_points[:, 0]
-        chunk_las.y = chunk_points[:, 1]
-        chunk_las.z = chunk_points[:, 2]
-        chunk_las.classification = chunk.classifications.cpu().numpy().astype(np.uint8)
-        chunk_las.write(os.path.join(data_folder, f"{file_name}_{x}_{y}.las"))
+        # header = laspy.LasHeader(point_format=3, version="1.2")
+        # header.offsets = chunk.points.cpu().numpy().mean(axis=0)
+        # header.scales = np.array([0.01, 0.01, 0.01])
+        # chunk_las = laspy.LasData(header=header)
+        # chunk_points = chunk.points.cpu().numpy()
+        # chunk_las.x = chunk_points[:, 0]
+        # chunk_las.y = chunk_points[:, 1]
+        # chunk_las.z = chunk_points[:, 2]
+        # chunk_las.classification = chunk.classifications.cpu().numpy().astype(np.uint8)
+        # chunk_las.write(os.path.join(data_folder, f"{file_name}_{x}_{y}.las"))
+        torch.save(
+            data_mat.input_mat.cpu(),
+            os.path.join(data_folder, f"{file_name}_{x}_{y}.input"),
+        )
+        torch.save(
+            data_mat.valid_len_mat.cpu(),
+            os.path.join(data_folder, f"{file_name}_{x}_{y}.valid_len"),
+        )
         # 写入标签
         torch.save(
-            label_mat.label_mat,
+            label_mat.label_mat.cpu(),
             os.path.join(label_folder, f"{file_name}_{x}_{y}.label"),
         )
         torch.save(
-            label_mat.teach_mat,
+            label_mat.teach_mat.cpu(),
             os.path.join(label_folder, f"{file_name}_{x}_{y}.teach"),
         )
 

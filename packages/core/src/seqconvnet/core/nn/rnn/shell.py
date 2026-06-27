@@ -25,7 +25,9 @@ class RnnShell(Network):
         self.seq_decoder = seq_decoder
         self.classifier = classifier
 
-    def forward(self, input_mat: Tensor4D, teach_mat: Tensor4D):
+    def forward(
+        self, input_mat: Tensor4D, _valid_len_mat: Tensor4D, teach_mat: Tensor4D
+    ):
         """训练前向传播"""
         state = self.encode(input_mat)
         output = self.seq_decoder(teach_mat, state)

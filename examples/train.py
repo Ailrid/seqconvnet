@@ -41,7 +41,7 @@ StartUpMessage.send(
             1.2322,
         ],
         batch_size=1,  # 建议设置为1
-        num_workers=0,  # 目前设置为非 0 会出问题, 因为 linux 上的 fork 会导致 cuda 环境出问题
+        num_workers=4,  # 数据加载线程
         input_size=128,  # 输入给网络的大小，单位是像素，每块的长和宽就是 input_size * xy_resolution
         area_size=128,  # 点云切块的大小，单位是米
         iter_times=1,  # 每个切块点云上的迭代次数

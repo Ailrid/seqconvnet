@@ -40,7 +40,7 @@ def one_epoch(
     model_config: ModelConfig,
     env_config: EnvConfig,
 ) -> None:
-
+    device = env_config.device
     evaluator = env_config.evaluator
     evaluator.reset()
     loss = model_config.loss
@@ -55,13 +55,20 @@ def one_epoch(
         dataset_config.train_loader,
         desc=f"Epoch {message.epoch}",
         leave=False,
-        total=len(cast(TrainLoader, dataset_config.train_loader.dataset)),
+        total=len(cast(TrainLoader, dataset_config.train_loader.dataset))
+        * dataset_config.num_workers,
     ) as pbar:
         l_statistic = []
-        for input_mat, valid_len_mat, label_mat, _teach_mat in pbar:
+        for input_mat, valid_len_mat, label_mat, teach_mat in pbar:
+
+            input_mat = input_mat.to(device)
+            valid_len_mat = valid_len_mat.to(device)
+            label_mat = label_mat.to(device)
+            teach_mat = teach_mat.to(device)
+
             optimizer.zero_grad()
             # [B, num_classes, S, H, W]
-            pred_mat = model(input_mat, valid_len_mat)
+            pred_mat = model(input_mat, valid_len_mat, teach_mat)
             l = loss(pred_mat, label_mat, valid_len_mat)
             l_statistic.append(l.cpu().item())
             l.backward()
@@ -90,6 +97,7 @@ def eval_net(
     env_config: EnvConfig,
     training_state: TrainingState,
 ) -> None:
+    device = env_config.device
     evaluator = env_config.evaluator
     evaluator.reset()
     model = model_config.model
@@ -105,6 +113,11 @@ def eval_net(
             total=len(cast(TrainLoader, dataset_config.test_loader.dataset)),
         ) as pbar:
             for input_mat, valid_len_mat, label_mat in pbar:
+
+                input_mat = input_mat.to(device)
+                valid_len_mat = valid_len_mat.to(device)
+                label_mat = label_mat.to(device)
+
                 # [B, num_classes, S, H, W]
                 pred_label = refer_mat(
                     input_mat,
