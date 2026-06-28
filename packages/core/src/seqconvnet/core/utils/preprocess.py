@@ -131,13 +131,9 @@ def generate_data(
         torch.int64
     )
 
-    # 对于高程超出了最大长度max_z的，设置高程为max_z-1
-    mask = z_indices > max_z - 1
-    z_indices[mask] = max_z - 1
-    # data = data[mask]
-    # x_indices = x_indices[mask]
-    # y_indices = y_indices[mask]
-    # z_indices = z_indices[mask]
+    x_indices = torch.clamp(x_indices, min=0, max=num_rows - 1)
+    y_indices = torch.clamp(y_indices, min=0, max=num_cols - 1)
+    z_indices = torch.clamp(z_indices, min=0, max=max_z - 1)
 
     # 构建一维索引
     full_indices = x_indices * num_cols * max_z + y_indices * max_z + z_indices

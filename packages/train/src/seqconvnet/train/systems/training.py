@@ -179,6 +179,26 @@ def one_epoch(
         * dataset_config.num_workers,
     ) as pbar:
         l_statistic = []
+        # for input_mat, valid_len_mat, label_mat, teach_mat in pbar:
+
+        #     input_mat = input_mat.to(device)
+        #     valid_len_mat = valid_len_mat.to(device)
+        #     label_mat = label_mat.to(device)
+        #     teach_mat = teach_mat.to(device)
+
+        #     optimizer.zero_grad()
+        #     # [B, num_classes, S, H, W]
+        #     pred_mat = model(input_mat, teach_mat)
+        #     l = loss(pred_mat, label_mat, valid_len_mat)
+        #     l_statistic.append(l.cpu().item())
+        #     l.backward()
+        #     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        #     optimizer.step()
+
+        #     # 计算精度,class从1开始，全部都+1
+        #     pred_label = pred_mat.argmax(dim=1) + 1
+        #     evaluator.update(pred_label, label_mat, valid_len_mat)
+        #     pbar.set_description(f"Loss: {np.mean(l_statistic):.5f}")
         for input_mat, valid_len_mat, label_mat, teach_mat in pbar:
 
             input_mat = input_mat.to(device)
@@ -187,15 +207,17 @@ def one_epoch(
             teach_mat = teach_mat.to(device)
 
             optimizer.zero_grad()
-            # [B, num_classes, S, H, W]
-            pred_mat = model(input_mat, teach_mat)
-            l = loss(pred_mat, label_mat, valid_len_mat)
+
+            with torch.amp.autocast("cuda", dtype=torch.bfloat16): # type: ignore
+                # [B, num_classes, S, H, W]
+                pred_mat = model(input_mat, teach_mat)
+                l = loss(pred_mat, label_mat, valid_len_mat)
+
             l_statistic.append(l.cpu().item())
-            l.backward()
+            l.backward()  
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
-            # 计算精度,class从1开始，全部都+1
             pred_label = pred_mat.argmax(dim=1) + 1
             evaluator.update(pred_label, label_mat, valid_len_mat)
             pbar.set_description(f"Loss: {np.mean(l_statistic):.5f}")

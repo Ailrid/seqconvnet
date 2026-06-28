@@ -7,7 +7,6 @@ Project: seqconvnet
 from virid.core import create_virid
 from virid.std import StdPlugin
 from seqconvnet.core import VoxelParameters
-from seqconvnet.preprocess.component import bind_components
 from seqconvnet.preprocess.message import StartUpMessage
 from seqconvnet.preprocess.hook import activate_hook
 from seqconvnet.preprocess.system import register_systems
@@ -15,7 +14,6 @@ from seqconvnet.preprocess.system import register_systems
 virid = create_virid().use(StdPlugin, None)
 
 activate_hook(virid)
-bind_components(virid)
 register_systems(virid)
 # 启动
 StartUpMessage.send(
@@ -33,7 +31,7 @@ StartUpMessage.send(
     ),
     area_size=128,
     # 额外配置
-    delete_labels=None,
+    delete_labels=[0],
     device="cuda",
 )
 virid.tick()

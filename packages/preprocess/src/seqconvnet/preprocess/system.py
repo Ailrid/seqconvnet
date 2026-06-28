@@ -27,11 +27,11 @@ from virid.std import execute_block
 
 
 @system(message_type=MappingMessage)
-def mapping(config: PreprocessConfig, info: PreprocessInfo):
+def mapping(config: PreprocessConfig, app: ViridApp):
     """生成Map"""
     mapping, num_classes, classes_weight = label_map(config.train_las_folder)
-    info.mapping = mapping
-    info.num_classes = num_classes
+
+    app.spawn(PreprocessInfo(mapping=mapping, num_classes=num_classes))
     # 打印标签映射关系
     print(
         "========== Remap label values, with the following mapping relationship =========="
@@ -108,27 +108,32 @@ def mae_preprocess(
 
 
 @system()
-def start_up(message: StartUpMessage, config: PreprocessConfig):
+def start_up(message: StartUpMessage, app: ViridApp):
     """启动预处理"""
-    config.train_las_folder = message.train_las_folder
-    config.test_las_folder = message.test_las_folder
-    config.preprocessed_folder = message.preprocessed_folder
+    app.spawn(
+        PreprocessConfig(
+            train_las_folder=message.train_las_folder,
+            test_las_folder=message.test_las_folder,
+            preprocessed_folder=message.preprocessed_folder,
+            area_size=message.area_size,
+            voxel_params=message.voxel_params,
+            device=message.device,
+        )
+    )
     # 默认训练参数
-    config.voxel_params = message.voxel_params
-    config.area_size = message.area_size
-    config.device = message.device
+
     print(
         f"========== Start preprocessing {message.train_las_folder} and {message.test_las_folder} =========="
     )
     print(f"========== Preprocess parameters ==========")
     print(
-        f"Min Rows: {config.voxel_params.min_rows}, Min Cols: {config.voxel_params.min_cols}, Max Z: {config.voxel_params.max_z}"
+        f"Min Rows: {message.voxel_params.min_rows}, Min Cols: {message.voxel_params.min_cols}, Max Z: {message.voxel_params.max_z}"
     )
     print(
-        f"XY Resolution: {config.voxel_params.xy_resolution}, Z Resolution: {config.voxel_params.z_resolution}"
+        f"XY Resolution: {message.voxel_params.xy_resolution}, Z Resolution: {message.voxel_params.z_resolution}"
     )
-    print(f"Area Size: {config.area_size} m")
-    print(f"Device: {config.device}")
+    print(f"Area Size: {message.area_size} m")
+    print(f"Device: {message.device}")
 
     def callback(success: bool):
         if success:

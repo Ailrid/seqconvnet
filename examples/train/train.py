@@ -28,15 +28,15 @@ TrainingLightingMessage.send(
         test_las_folder="preprocessed/dales_las/test",
         # classes从1开始，总共8个权重
         num_classes=8,
-        classes_weights=[  # 每个类的类别权重
+        classes_weights=[
             1.0000,
-            1.2866,
-            3.2652,
-            8.8057,
-            7.3190,
-            3.9489,
-            8.2722,
-            1.2322,
+            1.1434,
+            4.0844,
+            7.8481,
+            6.3243,
+            4.8210,
+            8.7707,
+            1.4449,
         ],
         batch_size=1,  # 建议设置为1
         num_workers=4,  # 数据加载线程
@@ -53,11 +53,11 @@ TrainingLightingMessage.send(
         ),
     ),
     model_params=ModelParameters(
-        checkpoint_folder="checkpoints/2026-06-28-13-55-36",
+        checkpoint_folder=None,
         model_type="transformer",
-        d_model=16,  # transformer 的 d_model 或者 rnn 的 hidden_size
-        nhead=2,  # transformer 的 nhead
-        num_layers=2,  # transformer 的 num_layers
+        d_model=32,  # transformer 的 d_model 或者 rnn 的 hidden_size
+        nhead=4,  # transformer 的 nhead
+        num_layers=3,  # transformer 的 num_layers
         dropout=0.1,
     ),
     env_params=EnvParameters(

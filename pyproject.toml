@@ -29,15 +29,12 @@ name = "pytorch-cuda"
 url = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu124/"
 explicit = true
 
-[[tool.uv.index]]
-name = "tsinghua"
-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
-default = true
 
 [[tool.uv.index]]
 name = "virid"
-url = "https://pypi.org/simple"
-
+#url = "https://pypi.org/simple"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
 
 [build-system]
 requires = ["hatchling"]
