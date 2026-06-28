@@ -6,25 +6,23 @@ Project: seqconvnet
 
 from virid.core import create_virid
 from virid.std import StdPlugin
-from seqconvnet.train.hook import activate_hook
 from seqconvnet.train import (
     bind_components,
     DatasetParameters,
     ModelParameters,
     EnvParameters,
     register_systems,
-    StartUpMessage,
+    TrainingLightingMessage,
 )
 from seqconvnet.core import VoxelParameters
 
 virid = create_virid(max_depth=1000, enable_logging=False).use(StdPlugin, None)
 
-activate_hook(virid)
 bind_components(virid)
 register_systems(virid)
 
-# 启动
-StartUpMessage.send(
+# 点火启动
+TrainingLightingMessage.send(
     dataset_params=DatasetParameters(
         train_las_folder="preprocessed/dales_las/train",
         test_las_folder="preprocessed/dales_las/test",
@@ -55,6 +53,7 @@ StartUpMessage.send(
         ),
     ),
     model_params=ModelParameters(
+        checkpoint_folder="checkpoints/2026-06-28-13-54-18",
         model_type="transformer",
         d_model=16,  # transformer 的 d_model 或者 rnn 的 hidden_size
         nhead=2,  # transformer 的 nhead

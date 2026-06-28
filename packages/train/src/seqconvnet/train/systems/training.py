@@ -4,21 +4,40 @@ Licensed under the Apache License, Version 2.0.
 Project: seqconvnet
 """
 
+import json
+import torch
+from tqdm import tqdm
 import numpy as np
 from typing import cast
-import torch
-
-from ..messages.training import (
-    StartTrainingMessage,
-    CheckPointMessage,
-    OneEpochMessage,
-    EvalMessage,
-)
-from ..components import ModelConfig, EnvConfig, DatasetConfig, TrainingState
+from dataclasses import asdict
 from virid.core import system, ViridApp, MessageWriter
 from virid.std import execute_block
-from tqdm import tqdm
 from seqconvnet.core import TrainLoader, refer_mat
+
+from ..messages.training import (
+    TrainingLightingMessage,
+    StartTrainingMessage,
+    SaveCheckPointMessage,
+    OneEpochMessage,
+    EvalMessage,
+    LoadMaeCheckPointMessage,
+    LoadCheckPointMessage,
+)
+from ..components import (
+    ModelConfig,
+    EnvConfig,
+    DatasetConfig,
+    TrainingState,
+    LightParameters,
+)
+from ..messages.initialization import (
+    CreateEvnMessage,
+    CreateTransformerMessage,
+    CreateRnnMessage,
+    CreateDatasetMessage,
+    CreateLoggerAndCheckpointMessage,
+)
+from ..util import confirm_light_params
 
 
 class Color:
@@ -31,6 +50,107 @@ class Color:
     GREY = "\033[90m"
     BOLD = "\033[1m"
     END = "\033[0m"  # 用来结束颜色，否则后面的文本都会变色
+
+
+@system()
+def training_lighting(message: TrainingLightingMessage, app: ViridApp):
+    """启动训练流程"""
+    # 动态插入 LightParameters 组件
+    app.spawn(
+        LightParameters(
+            message.dataset_params,
+            message.model_params,
+            message.env_params,
+        )
+    )
+
+    def callback(success: bool):
+        if success:
+            MessageWriter.info("Training initialized successfully")
+        else:
+            MessageWriter.error(RuntimeError("Training initialized failed"))
+
+    with execute_block(group_id="startup", callback=callback):
+
+        CreateLoggerAndCheckpointMessage.send()
+
+        # 在日志初始化之后才能开始打印
+        MessageWriter.info(
+            "============ Start Up Training ============ \n"
+            f"Model Params: {json.dumps(asdict(message.model_params),indent=4, ensure_ascii=False)}\n"
+            f"Training Params: {json.dumps(asdict(message.env_params),indent=4, ensure_ascii=False)}\n"
+            f"Dataset Params: {json.dumps(asdict(message.dataset_params),indent=4, ensure_ascii=False)}\n"
+        )
+
+        CreateDatasetMessage.send()
+        # 创建不同模型
+        if message.model_params.model_type == "transformer":
+            CreateTransformerMessage.send()
+        elif message.model_params.model_type == "rnn":
+            CreateRnnMessage.send()
+        else:
+            raise ValueError(
+                "Invalid model type, only rnn and transformer are supported"
+            )
+
+        CreateEvnMessage.send()
+        # 加载检查点
+        if (
+            message.model_params.checkpoint_folder is not None
+            and message.model_params.mae_checkpoint_folder is not None
+        ):
+            raise ValueError(
+                "Cannot use both checkpoint_folder and mae_checkpoint_folder"
+            )
+
+        if message.model_params.checkpoint_folder is not None:
+            LoadCheckPointMessage.send()
+
+        if message.model_params.mae_checkpoint_folder is not None:
+            LoadMaeCheckPointMessage.send()
+
+        StartTrainingMessage.send()
+
+
+@system(message_type=SaveCheckPointMessage)
+def save_checkpoint(
+    training_state: TrainingState,
+    model_config: ModelConfig,
+) -> None:
+    checkpoint_folder = training_state.checkpoint_folder
+    current_metrics = training_state.current_metrics
+    best_metrics = training_state.best_metrics
+    # 只保存最好的一轮
+    if current_metrics.mIoU > best_metrics.mIoU:
+        training_state.best_metrics = current_metrics
+        model_config.model.save_checkpoint(
+            checkpoint_folder, training_state.best_metrics
+        )
+
+
+@system(message_type=LoadCheckPointMessage)
+def load_checkpoint(
+    light_params: LightParameters,
+    model_config: ModelConfig,
+) -> None:
+    checkpoint_folder = light_params.model_params.checkpoint_folder
+    if checkpoint_folder is None:
+        return
+    check_result = confirm_light_params(checkpoint_folder, light_params)
+    model_config.model.load_checkpoint(checkpoint_folder)
+
+    MessageWriter.info(
+        "============ Load CheckPoint Successfully ============ \n"
+        f"From Checkpoint Folder: {checkpoint_folder}\n"
+        f"Confirmed Light Parameters:\n{check_result}\n"
+    )
+
+
+@system(message_type=LoadMaeCheckPointMessage)
+def load_mae_checkpoint(
+    light_params: LightParameters,
+) -> None:
+    raise NotImplementedError
 
 
 @system()
@@ -127,17 +247,10 @@ def eval_net(
                 )
                 evaluator.update(pred_label, label_mat, valid_len_mat)
 
-        hist_matrix, metrics, report_str = evaluator.print_metrics()
+        hist_matrix, current_metrics, report_str = evaluator.print_metrics()
         training_state.hist_matrix = hist_matrix
-        training_state.metrics = metrics
+        training_state.current_metrics = current_metrics
         MessageWriter.info(report_str)
-
-
-@system()
-def checkpoint(
-    message: CheckPointMessage,
-) -> None:
-    pass
 
 
 @system(message_type=StartTrainingMessage)
@@ -166,11 +279,16 @@ def start_training(env_config: EnvConfig, train_state: TrainingState) -> None:
         train_state.current_epoch += 1
         OneEpochMessage.send(train_state.current_epoch)
         EvalMessage.send(train_state.current_epoch)
-        CheckPointMessage.send()
+        SaveCheckPointMessage.send()
 
 
 def register_training_systems(app: ViridApp):
+    app.register(training_lighting)
+    app.register(start_training)
+
+    app.register(save_checkpoint)
+    app.register(load_checkpoint)
+    app.register(load_mae_checkpoint)
+
     app.register(one_epoch)
     app.register(eval_net)
-    app.register(checkpoint)
-    app.register(start_training)

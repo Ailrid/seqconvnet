@@ -4,12 +4,16 @@ Licensed under the Apache License, Version 2.0.
 Project: seqconvnet
 """
 
+from typing import Optional
+
 from seqconvnet.core import VoxelParameters
 from dataclasses import dataclass, field
 
 
 @dataclass()
 class ModelParameters:
+    checkpoint_folder: Optional[str] = None
+    mae_checkpoint_folder: Optional[str] = None
     model_type: str = "transformer"
     d_model: int = 128
     nhead: int = 4

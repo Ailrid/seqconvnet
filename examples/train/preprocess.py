@@ -19,6 +19,7 @@ bind_components(virid)
 register_systems(virid)
 # 启动
 StartUpMessage.send(
+    preprocess_target="training",
     train_las_folder="dales_las/train",
     test_las_folder="dales_las/test",
     preprocessed_folder="preprocessed",

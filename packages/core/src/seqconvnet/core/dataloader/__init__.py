@@ -5,3 +5,4 @@ Project: seqconvnet
 """
 
 from .supervised import *
+from .self_supervised import *

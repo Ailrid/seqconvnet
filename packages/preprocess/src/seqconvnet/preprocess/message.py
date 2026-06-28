@@ -13,8 +13,12 @@ from seqconvnet.core import VoxelParameters
 class TimerMessage(EventMessage): ...
 
 
+class MappingMessage(TimerMessage): ...
+
+
 @dataclass
 class StartUpMessage(EventMessage):
+    preprocess_target: str
     train_las_folder: str
     test_las_folder: str
     preprocessed_folder: str
@@ -25,9 +29,6 @@ class StartUpMessage(EventMessage):
     device: str = "cpu"
 
 
-class MappingMessage(TimerMessage): ...
-
-
 @dataclass
 class DeleteLabelsMessage(TimerMessage):
     las_folder: str
@@ -35,7 +36,13 @@ class DeleteLabelsMessage(TimerMessage):
 
 
 @dataclass
-class PreprocessMessage(TimerMessage):
+class TrainingPreprocessMessage(TimerMessage):
+    las_folder: str
+    overlap: bool
+
+
+@dataclass
+class MaePreprocessMessage(TimerMessage):
     las_folder: str
     overlap: bool
 

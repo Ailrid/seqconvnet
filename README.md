@@ -27,11 +27,12 @@ Detailed scaffolding examples are provided in the `examples` directory to help y
 
 ```python
 # Example: Run the training workflow
-python examples/train.py
+python examples/train/preprocess.py
+python examples/train/train.py
 ```
 
 ## Roadmap & TODOs
 
-- [ ] 📥 **Robust Model Lifecycle Management**: Provide features for model checkpoint saving and seamless loading.
+- [x] 📥 **Robust Model Lifecycle Management**: Provide features for model checkpoint saving and seamless loading.
 - [ ] 🤖 **Self-Supervised Learning (SSL) Support**: Introduce a self-supervised pre-training pipeline for point clouds to further leverage the potential of unlabeled data.
 - [ ] 📚 **Full-Scenario Example Library**: Add end-to-end deployment demos for more real-world point cloud datasets (e.g., DALES / S3DIS).

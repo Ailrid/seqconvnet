@@ -1,8 +1,11 @@
-from dataclasses import dataclass
 import logging
 from logging import getLogger
 import re
 import textwrap
+import os
+import json
+from dataclasses import asdict
+from .components import LightParameters
 
 # 颜色与样式转义码定义
 RESET = "\x1b[0m"
@@ -114,3 +117,86 @@ def create_logger(log_file_path: str = "training.txt") -> logging.Logger:
         logger.addHandler(file_handler)
 
     return logger
+
+
+def save_light_params(
+    path: str,
+    light_params: LightParameters,
+):
+    """
+    将模型、数据集和环境配置序列化并保存到指定文件夹下的 params.json 文件中
+    """
+    os.makedirs(path, exist_ok=True)
+
+    combined_dict = {
+        "light_params": asdict(light_params),
+    }
+
+    file_path = os.path.join(path, "params.json")
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(combined_dict, f, indent=4, ensure_ascii=False)
+
+
+def confirm_light_params(
+    path: str,
+    light_params: LightParameters,
+):
+    """
+    基于结构安全白名单，核验关键的模型架构和空间几何参数。
+    允许动态调整学习率、Epochs、Batch Size 和文件夹路径。
+    """
+    file_path = os.path.join(path, "params.json")
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(
+            f"The historical parameter configuration file was not found in the folder: {file_path}"
+        )
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        # 直接定位到内部的 light_params 字典
+        saved_config = json.load(f).get("light_params", {})
+
+    current_config = asdict(light_params)
+
+    # 只有写入这个字典的字段，才会被严格比对
+    required_checks = {
+        "model_params": ["model_type", "d_model", "nhead", "num_layers", "dropout"],
+        "dataset_params": [
+            "num_classes",
+            "voxel_params",
+            "input_size",
+        ],  # 纳入 input_size 防御特征图变形
+    }
+
+    mismatches = []
+    matches = []
+
+    for section_name, checked_keys in required_checks.items():
+        saved_section = saved_config.get(section_name, {})
+        current_section = current_config.get(section_name, {})
+
+        for key in checked_keys:
+            v_saved = saved_section.get(key)
+            v_current = current_section.get(key)
+
+            # Python 的 != 会自动递归比较嵌套的 voxel_params 字典
+            if v_saved != v_current:
+                mismatches.append(
+                    f"  ➔ [{section_name}] -> property '{key}':\n"
+                    f"      Historical saved values: {v_saved}\n"
+                    f"      Current input value: {v_current}"
+                )
+            else:
+                matches.append(
+                    f"  ➔ [{section_name}] -> property '{key}':\n"
+                    f"      Historical saved values: {v_saved}\n"
+                    f"      Current input value: {v_current}\n"
+                )
+
+    if mismatches:
+        error_title = f"\nParameter Mismatch! The current running configuration is inconsistent with the historically saved configuration."
+        error_details = "\n".join(mismatches)
+        raise ValueError(
+            f"{error_title}\n{error_details}\nPlease check your configuration file or clean up the experiment folder."
+        )
+
+    return "".join(matches)

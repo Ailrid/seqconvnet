@@ -4,48 +4,19 @@ Licensed under the Apache License, Version 2.0.
 Project: seqconvnet
 """
 
-from dataclasses import dataclass
 from virid.core import EventMessage
-from ..params import ModelParameters, DatasetParameters, EnvParameters
+
+class CreateTransformerMessage(EventMessage): ...
 
 
-class TimerMessage(EventMessage): ...
+class CreateRnnMessage(EventMessage): ...
 
 
-@dataclass
-class StartUpMessage(EventMessage):
-    dataset_params: DatasetParameters
-    model_params: ModelParameters
-    env_params: EnvParameters
+class CreateDatasetMessage(EventMessage): ...
 
 
-@dataclass
-class CreateTransformerMessage(TimerMessage):
-    dataset_params: DatasetParameters
-    model_params: ModelParameters
-    env_params: EnvParameters
+class CreateEvnMessage(EventMessage): ...
 
 
-@dataclass
-class CreateRnnMessage(TimerMessage):
-    dataset_params: DatasetParameters
-    model_params: ModelParameters
-    env_params: EnvParameters
+class CreateLoggerAndCheckpointMessage(EventMessage): ...
 
-
-@dataclass
-class CreateDatasetMessage(TimerMessage):
-    dataset_params: DatasetParameters
-    model_params: ModelParameters
-    env_params: EnvParameters
-
-
-@dataclass
-class CreateEvnMessage(TimerMessage):
-    dataset_params: DatasetParameters
-    model_params: ModelParameters
-    env_params: EnvParameters
-
-
-@dataclass
-class CreateLoggerAndCheckpointMessage(TimerMessage): ...

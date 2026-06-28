@@ -4,6 +4,14 @@ Licensed under the Apache License, Version 2.0.
 Project: seqconvnet
 """
 
+import torch
+import time
+import os
+from torch import optim
+from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
+from virid.core import system, ViridApp, MessageWriter
+
 from seqconvnet.core import (
     SoftDiceAndFocalLoss,
     SwinEncoder,
@@ -12,110 +20,42 @@ from seqconvnet.core import (
     RnnEncoder,
     RnnShell,
     CustomConvEncoder,
+    SegmentationEvaluator,
+    TestLoader,
+    TrainLoader,
 )
 from seqconvnet.core import (
     TransformerEncoder,
     TransformerDecoder,
     TransformerClassifier,
     TransformerShell,
+    StandardHeightEmbedding,
 )
-from seqconvnet.core import SegmentationEvaluator, TestLoader, TrainLoader
-from torch import optim
-import torch
-from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
+
 from ..messages.initialization import (
-    StartUpMessage,
     CreateEvnMessage,
     CreateTransformerMessage,
     CreateRnnMessage,
     CreateDatasetMessage,
     CreateLoggerAndCheckpointMessage,
 )
-from ..messages.training import (
-    StartTrainingMessage,
-)
+
 from ..components import (
     ModelConfig,
     EnvConfig,
     DatasetConfig,
     TrainingLogger,
     TrainingState,
+    LightParameters,
 )
-from virid.core import system, ViridApp, MessageWriter
-from virid.std import execute_block
-from torch.utils.data import DataLoader
-from ..util import create_logger
-import time
-import os
-import json
-from dataclasses import asdict
-
-
-class Color:
-    GREEN = "\033[92m"
-    CYAN = "\033[96m"
-    RED = "\033[91m"
-    YELLOW = "\033[93m"
-    BLUE = "\033[94m"
-    ORANGE = "\033[33m"
-    GREY = "\033[90m"
-    BOLD = "\033[1m"
-    END = "\033[0m"  # 用来结束颜色，否则后面的文本都会变色
-
-
-@system()
-def start_up(message: StartUpMessage):
-    """启动训练流程"""
-
-    def callback(success: bool):
-        if success:
-            MessageWriter.info("Training initialized successfully")
-        else:
-            MessageWriter.error(RuntimeError("Training initialized failed"))
-
-    with execute_block(group_id="startup", callback=callback):
-
-        CreateLoggerAndCheckpointMessage.send()
-        # 在日志初始化之后才能开始打印
-        MessageWriter.info(
-            "============ Start Up Training ============ \n"
-            f"Model Params: {json.dumps(asdict(message.model_params),indent=4, ensure_ascii=False)}\n"
-            f"Training Params: {json.dumps(asdict(message.env_params),indent=4, ensure_ascii=False)}\n"
-            f"Dataset Params: {json.dumps(asdict(message.dataset_params),indent=4, ensure_ascii=False)}\n"
-        )
-        CreateDatasetMessage.send(
-            message.dataset_params,
-            message.model_params,
-            message.env_params,
-        )
-
-        if message.model_params.model_type == "transformer":
-            CreateTransformerMessage.send(
-                message.dataset_params,
-                message.model_params,
-                message.env_params,
-            )
-        elif message.model_params.model_type == "rnn":
-            CreateRnnMessage.send(
-                message.dataset_params,
-                message.model_params,
-                message.env_params,
-            )
-        else:
-            raise ValueError("Invalid model type")
-
-        CreateEvnMessage.send(
-            message.dataset_params,
-            message.model_params,
-            message.env_params,
-        )
-        StartTrainingMessage.send()
+from ..util import create_logger, save_light_params
 
 
 @system(message_type=CreateLoggerAndCheckpointMessage)
 def create_logger_and_checkpoint(
     logger: TrainingLogger,
     training_state: TrainingState,
+    light_params: LightParameters,
 ):
     # 创建开始时间文件夹
     logger_folder = os.path.join(
@@ -134,7 +74,8 @@ def create_logger_and_checkpoint(
     os.makedirs(checkpoint_folder, exist_ok=True)
     training_state.log_folder = logger_folder
     training_state.checkpoint_folder = checkpoint_folder
-
+    # 保存一份训练设置到checkpoint文件夹中
+    save_light_params(checkpoint_folder, light_params)
     MessageWriter.info(
         "============ Create Logger And Checkpoint Done ============ \n"
         f"Logger Folder: {logger_folder}\n"
@@ -142,9 +83,12 @@ def create_logger_and_checkpoint(
     )
 
 
-@system()
-def create_dataset(message: CreateDatasetMessage, app: ViridApp) -> None:
-    dataset_params = message.dataset_params
+@system(message_type=CreateDatasetMessage)
+def create_dataset(
+    app: ViridApp,
+    light_params: LightParameters,
+) -> None:
+    dataset_params = light_params.dataset_params
 
     train_loader = DataLoader(
         TrainLoader(
@@ -187,41 +131,50 @@ def create_dataset(message: CreateDatasetMessage, app: ViridApp) -> None:
     )
 
 
-@system()
-def create_transformer_model(message: CreateTransformerMessage, app: ViridApp) -> None:
-    model_params = message.model_params
-    env_params = message.env_params
-    dataset_params = message.dataset_params
-    # 组装网络
-    seq_encoder = TransformerEncoder(
+@system(message_type=CreateTransformerMessage)
+def create_transformer_model(
+    app: ViridApp,
+    light_params: LightParameters,
+) -> None:
+    model_params = light_params.model_params
+    env_params = light_params.env_params
+    dataset_params = light_params.dataset_params
+    embedding = StandardHeightEmbedding(
         dataset_params.voxel_params.max_z,
         model_params.d_model,
-        model_params.nhead,
-        model_params.num_layers,
-        model_params.dropout,
-    ).to(env_params.device)
-    # conv_encoder = SwinEncoder(
-    #     model_params.d_model, model_params.d_model, dataset_params.input_size
-    # ).to(env_params.device)
-    conv_encoder = CustomConvEncoder(
-        model_params.d_model,
-        model_params.d_model,
-    ).to(env_params.device)
-    seq_decoder = TransformerDecoder(
-        dataset_params.num_classes,
-        model_params.d_model,
-        model_params.nhead,
-        model_params.num_layers,
-        model_params.dropout,
-    ).to(env_params.device)
-    classifier = TransformerClassifier(
-        model_params.d_model,
-        dataset_params.num_classes,
-    ).to(env_params.device)
-
-    model = TransformerShell(seq_encoder, conv_encoder, seq_decoder, classifier).to(
-        env_params.device
     )
+    # 组装网络
+    seq_encoder = TransformerEncoder(
+        model_params.d_model,
+        model_params.nhead,
+        model_params.num_layers,
+        model_params.dropout,
+    )
+
+    conv_encoder = SwinEncoder(
+        model_params.d_model, model_params.d_model, dataset_params.input_size
+    )
+
+    # conv_encoder = CustomConvEncoder(
+    #     model_params.d_model,
+    #     model_params.d_model,
+    # )
+
+    seq_decoder = TransformerDecoder(
+        model_params.d_model,
+        model_params.nhead,
+        model_params.num_layers,
+        model_params.dropout,
+    )
+
+    classifier = TransformerClassifier(
+        dataset_params.num_classes,
+        model_params.d_model,
+    )
+
+    model = TransformerShell(
+        embedding, seq_encoder, conv_encoder, seq_decoder, classifier
+    ).to(env_params.device)
     loss = SoftDiceAndFocalLoss(
         dataset_params.num_classes,
         dataset_params.classes_weights,
@@ -244,38 +197,56 @@ def create_transformer_model(message: CreateTransformerMessage, app: ViridApp) -
     )
 
 
-@system()
-def create_rnn_model(message: CreateRnnMessage, app: ViridApp) -> None:
-    model_params = message.model_params
-    env_params = message.env_params
-    dataset_params = message.dataset_params
+@system(message_type=CreateRnnMessage)
+def create_rnn_model(
+    app: ViridApp,
+    light_params: LightParameters,
+) -> None:
+    model_params = light_params.model_params
+    env_params = light_params.env_params
+    dataset_params = light_params.dataset_params
     # 组装网络
-    seq_encoder = RnnEncoder(
+    encoder_embedding = StandardHeightEmbedding(
         dataset_params.voxel_params.max_z,
+        model_params.d_model,
+    ).to(env_params.device)
+    # 这里 + 2, max_z + 2 给 BOS 一个位置, 0 给 PAD 一个位置
+    decoder_embedding = torch.nn.Embedding(
+        dataset_params.voxel_params.max_z + 2, model_params.d_model
+    )
+
+    seq_encoder = RnnEncoder(
         model_params.d_model,
         model_params.d_model,
         model_params.num_layers,
         model_params.dropout,
     ).to(env_params.device)
+
     conv_encoder = CustomConvEncoder(
         model_params.num_layers * model_params.d_model,
         model_params.num_layers * model_params.d_model,
     ).to(env_params.device)
+
     seq_decoder = RnnDecoder(
-        dataset_params.num_classes,
         2 * model_params.d_model,
         model_params.d_model,
         model_params.num_layers,
         model_params.dropout,
     ).to(env_params.device)
+
     classifier = RnnClassifier(
         dataset_params.num_classes,
         model_params.d_model,
     ).to(env_params.device)
 
-    model = RnnShell(seq_encoder, conv_encoder, seq_decoder, classifier).to(
-        env_params.device
-    )
+    model = RnnShell(
+        encoder_embedding,
+        decoder_embedding,
+        seq_encoder,
+        conv_encoder,
+        seq_decoder,
+        classifier,
+    ).to(env_params.device)
     loss = SoftDiceAndFocalLoss(
         dataset_params.num_classes,
         dataset_params.classes_weights,
@@ -297,11 +268,13 @@ def create_rnn_model(message: CreateRnnMessage, app: ViridApp) -> None:
     )
 
 
-@system()
+@system(message_type=CreateEvnMessage)
 def create_env(
-    message: CreateEvnMessage, app: ViridApp, model_config: ModelConfig
+    app: ViridApp,
+    model_config: ModelConfig,
+    light_params: LightParameters,
 ) -> None:
-    env_params = message.env_params
+    env_params = light_params.env_params
 
     optimizer = optim.AdamW(
         model_config.model.parameters(),
@@ -326,7 +299,7 @@ def create_env(
         milestones=[env_params.warmup_epochs],
     )
 
-    evaluator = SegmentationEvaluator(message.dataset_params.num_classes, True)
+    evaluator = SegmentationEvaluator(light_params.dataset_params.num_classes, True)
     app.spawn(
         EnvConfig(
             lr=env_params.lr,
@@ -350,7 +323,6 @@ def create_env(
 
 
 def register_initialization_systems(app: ViridApp):
-    app.register(start_up)
     app.register(create_dataset)
     app.register(create_transformer_model)
     app.register(create_rnn_model)

@@ -342,6 +342,36 @@ def preprocess_las_file(
         )
 
 
+def mae_preprocess_las_file(
+    las_path: str,
+    data_folder: str,
+    mapping: dict[int, int],
+    area_size: float,
+    overlap: bool,
+    params: VoxelParameters,
+    device: str,
+) -> None:
+    """mae_预处理单个LAS文件"""
+    las_data = read_las_file(las_path)
+    file_name = os.path.basename(las_path).split(".")[0]
+    # 不存在两个路径就创建
+    os.makedirs(data_folder, exist_ok=True)
+    # 重新索引标签
+    reindex_label(las_data, mapping)
+    # 切块生成四个矩阵
+    for _, chunk, x, y in chunk_area(las_data, area_size, overlap, device):
+        # 获取文件名
+        data_mat = generate_data(chunk, params, device)
+        torch.save(
+            data_mat.input_mat.cpu(),
+            os.path.join(data_folder, f"{file_name}_{x}_{y}.input"),
+        )
+        torch.save(
+            data_mat.valid_len_mat.cpu(),
+            os.path.join(data_folder, f"{file_name}_{x}_{y}.valid_len"),
+        )
+
+
 def delete_labels(las_path: str, labels: list[int]):
     """
     删除指定标签内的点，并直接覆盖存储原文件

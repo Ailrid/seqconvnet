@@ -10,13 +10,15 @@ from .message import (
     StartUpMessage,
     MappingMessage,
     DeleteLabelsMessage,
-    PreprocessMessage,
+    TrainingPreprocessMessage,
+    MaePreprocessMessage,
 )
 from .component import PreprocessConfig, PreprocessInfo
 from seqconvnet.core import (
     label_map,
     delete_labels,
     preprocess_las_file,
+    mae_preprocess_las_file,
 )
 
 from tqdm import tqdm
@@ -57,8 +59,8 @@ def delete_cls(message: DeleteLabelsMessage):
 
 
 @system()
-def preprocess(
-    message: PreprocessMessage, config: PreprocessConfig, info: PreprocessInfo
+def training_preprocess(
+    message: TrainingPreprocessMessage, config: PreprocessConfig, info: PreprocessInfo
 ):
 
     print(f"========== Start preprocessing {message.las_folder} ==========")
@@ -82,18 +84,27 @@ def preprocess(
             )
 
 
-# @system()
-# def link_test_data(message: LinkTestDataMessage, config: PreprocessConfig):
-#     print(f"========== Start preprocessing {message.las_folder} ==========")
-#     data_folder = os.path.join(config.preprocessed_folder, message.las_folder, "data")
-#     os.makedirs(data_folder, exist_ok=True)
-#     file_list = [f for f in os.listdir(message.las_folder) if f.endswith(".las")]
-#     for file_name in file_list:
-#         file_path = os.path.join(message.las_folder, file_name)
-#         link_path = os.path.join(data_folder, file_name)
-#         if os.path.exists(link_path):
-#             os.remove(link_path)
-#         os.symlink(file_path, link_path)
+@system()
+def mae_preprocess(
+    message: MaePreprocessMessage, config: PreprocessConfig, info: PreprocessInfo
+):
+
+    print(f"========== Start mae preprocessing {message.las_folder} ==========")
+    data_folder = os.path.join(config.preprocessed_folder, message.las_folder, "data")
+    file_list = [f for f in os.listdir(message.las_folder) if f.endswith(".las")]
+
+    with tqdm(file_list, desc="Preprocessing", total=len(file_list)) as pbar:
+        for file_name in pbar:
+            file_path = os.path.join(message.las_folder, file_name)
+            mae_preprocess_las_file(
+                file_path,
+                data_folder,
+                info.mapping,
+                config.area_size,
+                message.overlap,
+                config.voxel_params,
+                config.device,
+            )
 
 
 @system()
@@ -126,18 +137,28 @@ def start_up(message: StartUpMessage, config: PreprocessConfig):
             print("Preprocess failed")
 
     with execute_block(group_id="start_up", callback=callback):
+
         # 如果要删除类别，那么就先删除该类别
         if message.delete_labels is not None:
             DeleteLabelsMessage.send(message.train_las_folder, message.delete_labels)
             DeleteLabelsMessage.send(message.test_las_folder, message.delete_labels)
-        MappingMessage.send()
-        PreprocessMessage.send(message.train_las_folder, True)
-        # LinkTestDataMessage.send(message.test_las_folder)
-        PreprocessMessage.send(message.test_las_folder, False)
+
+        if message.preprocess_target == "mae":
+            MaePreprocessMessage.send(message.train_las_folder, True)
+            MaePreprocessMessage.send(message.test_las_folder, False)
+
+        elif message.preprocess_target == "training":
+            MappingMessage.send()
+            TrainingPreprocessMessage.send(message.train_las_folder, True)
+            TrainingPreprocessMessage.send(message.test_las_folder, False)
+
+        else:
+            raise ValueError('preprocess_target must be "mae" or "training"')
 
 
 def register_systems(app: ViridApp):
     app.register(start_up)
     app.register(mapping)
     app.register(delete_cls)
-    app.register(preprocess)
+    app.register(training_preprocess)
+    app.register(mae_preprocess)

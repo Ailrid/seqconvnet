@@ -8,7 +8,7 @@ from virid.core import system, InfoMessage, WarnMessage, ErrorMessage, ViridApp
 from ..components import TrainingLogger
 
 
-# 敲重点，不要设置优先级，否则必须要等其他system全部都执行完了才会打印
+# 不要设置优先级，否则必须要等其他system全部都执行完了才会打印
 @system()
 def info(message: InfoMessage, logger: TrainingLogger) -> None:
     if logger.writer is None:

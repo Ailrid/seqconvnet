@@ -7,6 +7,7 @@ Project: seqconvnet
 from abc import abstractmethod
 from ..structs import Tensor4D
 import torch
+from ..utils import SegmentationMetrics
 
 
 class Network(torch.nn.Module):
@@ -30,7 +31,14 @@ class Network(torch.nn.Module):
         raise NotImplementedError
 
     @abstractmethod
-    def save_checkpoint(self, path: str) -> None:
+    def load_mae_checkpoint(self, path: str) -> None:
+        """
+        加载模型参数
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def save_checkpoint(self, path: str, best_metrics: SegmentationMetrics) -> None:
         """
         加载模型参数
         """

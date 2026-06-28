@@ -16,6 +16,15 @@ from seqconvnet.core import (
 from virid.core import component
 from dataclasses import dataclass
 from torch.utils.data import DataLoader
+from ..params import ModelParameters, DatasetParameters, EnvParameters
+
+
+@component()
+@dataclass()
+class LightParameters:
+    dataset_params: DatasetParameters
+    model_params: ModelParameters
+    env_params: EnvParameters
 
 
 @component()

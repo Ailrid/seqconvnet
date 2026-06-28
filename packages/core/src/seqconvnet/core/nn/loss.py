@@ -138,3 +138,51 @@ class SoftDiceAndCELoss(nn.Module):
         )
 
         return self.alpha * ce_loss + self.beta * dice_loss
+
+
+class MaeVoxelLoss(nn.Module):
+    def __init__(
+        self,
+        max_z: int = 128,  # 预训练时的 num_classes 就是最大高度层数
+        gamma: float = 2.0,
+    ):
+        super().__init__()
+        self.num_classes = max_z
+        self.gamma = gamma
+
+    def forward(
+        self, pred: torch.Tensor, label: torch.Tensor, mae_mask: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        参数:
+            pred:     模型的网络预测输出 [B, num_classes(128), S, H, W]
+            label:    没有被污染的原始高度序列 [B, S, H, W]
+            mae_mask: Shell 返回的空间掩码矩阵 [B, S, H, W] (True 表示被擦除需要计算 Loss)
+        """
+        # 调整维度 [B, num_classes, S, H, W] -> [B, S, H, W, num_classes]
+        pred_permuted = pred.permute(0, 2, 3, 4, 1).contiguous()
+        mask_bool = mae_mask.bool()
+
+        # 只切出真正被 MAE 挖掉的那些稀疏体素
+        pred_filtered = pred_permuted[mask_bool]  # [N, 128]
+        target_filtered = label[mask_bool].long()  # [N]
+
+        # 将原始高度 1~128 统一减 1，映射到 0~127 索引
+        target_filtered = target_filtered - 1
+
+        # 边界过滤
+        legal_mask = (target_filtered >= 0) & (target_filtered < self.num_classes)
+        pred_filtered = pred_filtered[legal_mask]
+        target_filtered = target_filtered[legal_mask]
+
+        if target_filtered.size(0) == 0:
+            return pred.sum() * 0
+
+        # Focal Loss
+        log_pt = F.log_softmax(pred_filtered, dim=-1)
+        log_pt = log_pt.gather(1, target_filtered.unsqueeze(1)).squeeze(1)
+        pt = log_pt.exp()
+
+        focal_loss = -((1 - pt) ** self.gamma) * log_pt
+
+        return focal_loss.mean()
