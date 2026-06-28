@@ -19,7 +19,6 @@ from seqconvnet.core import (
     RnnDecoder,
     RnnEncoder,
     RnnShell,
-    CustomConvEncoder,
     SegmentationEvaluator,
     TestLoader,
     TrainLoader,
@@ -209,7 +208,7 @@ def create_rnn_model(
     encoder_embedding = StandardHeightEmbedding(
         dataset_params.voxel_params.max_z,
         model_params.d_model,
-    ).to(env_params.device)
+    )
     # 这里 + 2, max_z + 2 给 BOS 一个位置, 0 给 PAD 一个位置
     decoder_embedding = torch.nn.Embedding(
         dataset_params.voxel_params.max_z + 2, model_params.d_model
@@ -220,24 +219,23 @@ def create_rnn_model(
         model_params.d_model,
         model_params.num_layers,
         model_params.dropout,
-    ).to(env_params.device)
+    )
 
-    conv_encoder = CustomConvEncoder(
-        model_params.num_layers * model_params.d_model,
-        model_params.num_layers * model_params.d_model,
-    ).to(env_params.device)
+    conv_encoder = SwinEncoder(
+        model_params.d_model, model_params.d_model, dataset_params.input_size
+    )
 
     seq_decoder = RnnDecoder(
         2 * model_params.d_model,
         model_params.d_model,
         model_params.num_layers,
         model_params.dropout,
-    ).to(env_params.device)
+    )
 
     classifier = RnnClassifier(
         dataset_params.num_classes,
         model_params.d_model,
-    ).to(env_params.device)
+    )
 
     model = RnnShell(
         encoder_embedding,

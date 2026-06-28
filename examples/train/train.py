@@ -53,7 +53,7 @@ TrainingLightingMessage.send(
         ),
     ),
     model_params=ModelParameters(
-        checkpoint_folder="checkpoints/2026-06-28-13-54-18",
+        checkpoint_folder="checkpoints/2026-06-28-13-55-36",
         model_type="transformer",
         d_model=16,  # transformer 的 d_model 或者 rnn 的 hidden_size
         nhead=2,  # transformer 的 nhead

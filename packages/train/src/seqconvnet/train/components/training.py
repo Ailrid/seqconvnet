@@ -19,9 +19,9 @@ class TrainingState:
     # 当前epoch的混淆矩阵
     hist_matrix: list[list[int]] = field(default_factory=lambda: list())
     # 当前epoch的评估指标
-    current_metrics: SegmentationMetrics = field(default_factory=SegmentationMetrics)  # type: ignore
+    current_metrics: SegmentationMetrics = field(default_factory=SegmentationMetrics)
     # 最好的一次评估指标
-    best_metrics: SegmentationMetrics = field(default_factory=SegmentationMetrics)  # type: ignore
+    best_metrics: SegmentationMetrics = field(default_factory=SegmentationMetrics)
     # 日志路径
     log_folder: str = ""
     # 模型保存路径
