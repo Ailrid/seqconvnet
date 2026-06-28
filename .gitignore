@@ -10,6 +10,8 @@ uv.lock
 # Virtual environments
 .venv
 *.las
+*.input
+*.valid_len
 *.label
 *.teach
 /preprocessed

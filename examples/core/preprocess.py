@@ -11,14 +11,14 @@ from seqconvnet.core import (
     VoxelParameters,
 )
 
-las_path = "small_las.las"
+las_path = "dales_las/train/5080_54435.las"
 device = "cuda"
 num_classes = 8
 force_teach_token = num_classes + 2
 voxel_params = VoxelParameters(
     xy_resolution=0.5,
     z_resolution=0.5,
-    max_z=64,
+    max_z=256,
     min_rows=128,
     min_cols=128,
 )

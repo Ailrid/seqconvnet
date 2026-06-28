@@ -6,6 +6,7 @@ Project: seqconvnet
 
 import torch
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint
 
 
 def init_weights(m):
@@ -18,10 +19,6 @@ def init_weights(m):
     elif isinstance(m, (nn.LayerNorm, nn.BatchNorm2d)):
         nn.init.constant_(m.weight, 1.0)
         nn.init.constant_(m.bias, 0.0)
-
-
-import torch
-import torch.nn as nn
 
 
 class TransformerEncoder(nn.Module):
@@ -54,7 +51,14 @@ class TransformerEncoder(nn.Module):
 
         # 直接应用 dropout 并送入 Transformer 骨干
         x = self.dropout(seq_embedding)
-        seq_feat = self.transformer_encoder(x, src_key_padding_mask=seq_mask)
+        # seq_feat = self.transformer_encoder(x, src_key_padding_mask=seq_mask)
+        seq_feat = checkpoint(
+            self.transformer_encoder,
+            x,
+            None,
+            seq_mask,
+            use_reentrant=False,
+        )
 
         # Masked Mean Pooling
         valid_mask = (~seq_mask).float().unsqueeze(-1)
@@ -105,8 +109,15 @@ class TransformerDecoder(nn.Module):
         combined_feat = torch.cat([seq_feat, spatial_feat_broadcasted], dim=-1)
         fused_feat = self.feature_fusion(combined_feat)
 
-        refined_feat = self.temporal_sequence_refiner(
-            fused_feat, src_key_padding_mask=seq_mask
+        # refined_feat = self.temporal_sequence_refiner(
+        #     fused_feat, src_key_padding_mask=seq_mask
+        # )
+        refined_feat = checkpoint(
+            self.temporal_sequence_refiner,
+            fused_feat,
+            None,
+            seq_mask,
+            use_reentrant=False,
         )
         return refined_feat
 

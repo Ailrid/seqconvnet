@@ -6,6 +6,43 @@ Project: seqconvnet
 
 import torch
 import torch.nn as nn
+from torch.utils.checkpoint import checkpoint
+
+
+class PatchMerging(nn.Module):
+    """Swin下采样：分辨率减半，通道数翻倍 [B, H, W, C] ---> [B, H/2, W/2, 2C]"""
+
+    def __init__(self, dim):
+        super().__init__()
+        self.reduction = nn.Linear(4 * dim, 2 * dim, bias=False)
+        self.norm = nn.LayerNorm(4 * dim)
+
+    def forward(self, x):
+        B, H, W, C = x.shape
+        x0 = x[:, 0::2, 0::2, :]
+        x1 = x[:, 1::2, 0::2, :]
+        x2 = x[:, 0::2, 1::2, :]
+        x3 = x[:, 1::2, 1::2, :]
+        x = torch.cat([x0, x1, x2, x3], -1)
+        x = self.norm(x)
+        return self.reduction(x)
+
+
+class PatchExpanding(nn.Module):
+    """Swin上采样：分辨率加倍，通道数减半 [B, H, W, C] ---> [B, 2H, 2W, C/2]"""
+
+    def __init__(self, input_dim):
+        super().__init__()
+        self.expand = nn.Linear(input_dim, 2 * input_dim, bias=False)
+        self.norm = nn.LayerNorm(input_dim // 2)
+
+    def forward(self, x):
+        x = self.expand(x)
+        B, H, W, C = x.shape
+        x = x.view(B, H, W, 2, 2, C // 4)
+        x = x.permute(0, 1, 3, 2, 4, 5).contiguous()
+        x = x.view(B, H * 2, W * 2, C // 4)
+        return self.norm(x)
 
 
 def window_partition(x, window_size=8):
@@ -216,52 +253,220 @@ class SwinTransformerBlock(nn.Module):
 
 class SwinEncoder(nn.Module):
     """
-    点云 BEV 特征图的高性能横向空间感应器
+    4阶深层主网络：支持 128 -> 64 -> 32 -> 16 -> 8 的全对称U型特征感应器
     """
 
-    def __init__(self, in_channels=32, out_channels=128, img_size=128):
+    def __init__(
+        self, in_channels=32, out_channels=128, img_size=128, use_checkpoint=True
+    ):
         super().__init__()
+        self.use_checkpoint = use_checkpoint
 
-        # 特征图 Stem：保持点云无损分辨率 (Stride=1)，无缝转换通道
+        # 动态计算 5 个层级的通道数
+        c1 = out_channels  # Stage 1: 128
+        c2 = out_channels * 2  # Stage 2: 256
+        c3 = out_channels * 4  # Stage 3: 512
+        c4 = out_channels * 8  # Stage 4: 1024
+        c5 = out_channels * 16  # Bottleneck: 2048
+
+        # 0. Stem 映射层 (128x128)
         self.stem = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
+            nn.Conv2d(in_channels, c1, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(c1),
             nn.GELU(),
         )
 
-        # 使用 ModuleList 规范化堆叠 Block，有利于维护和清晰的管理
-        self.blocks = nn.ModuleList(
+        # ==================== 【ENCODER 阶段】 ====================
+        # Stage 1: [128x128], dim=128, heads=4
+        self.enc_stage1 = nn.ModuleList(
             [
                 SwinTransformerBlock(
-                    dim=out_channels,
-                    input_resolution=img_size,
-                    num_heads=4,
-                    window_size=8,
-                ),
+                    dim=c1, input_resolution=img_size, num_heads=4, window_size=8
+                )
+                for _ in range(2)
+            ]
+        )
+        self.down1 = PatchMerging(dim=c1)  # 128 -> 64
+
+        # Stage 2: [64x64], dim=256, heads=8
+        self.enc_stage2 = nn.ModuleList(
+            [
                 SwinTransformerBlock(
-                    dim=out_channels,
-                    input_resolution=img_size,
-                    num_heads=4,
+                    dim=c2,
+                    input_resolution=img_size // 2,
+                    num_heads=8,
                     window_size=8,
-                ),
+                )
+                for _ in range(2)
+            ]
+        )
+        self.down2 = PatchMerging(dim=c2)  # 64 -> 32
+
+        # Stage 3: [32x32], dim=512, heads=16
+        self.enc_stage3 = nn.ModuleList(
+            [
+                SwinTransformerBlock(
+                    dim=c3,
+                    input_resolution=img_size // 4,
+                    num_heads=16,
+                    window_size=8,
+                )
+                for _ in range(2)
+            ]
+        )
+        self.down3 = PatchMerging(dim=c3)  # 32 -> 16
+
+        # Stage 4: [16x16], dim=1024, heads=32
+        self.enc_stage4 = nn.ModuleList(
+            [
+                SwinTransformerBlock(
+                    dim=c4,
+                    input_resolution=img_size // 8,
+                    num_heads=32,
+                    window_size=8,
+                )
+                for _ in range(2)
+            ]
+        )
+        self.down4 = PatchMerging(dim=c4)  # 16 -> 8
+
+        # ==================== 【BOTTLENECK 最底层】 ====================
+        # Bottleneck: [8x8], dim=2048, heads=64
+        # 此时特征图大小与窗口大小一致(8x8)，滑动窗口会退化为标准全局/窗口交互，完美闭环
+        self.bottleneck = nn.ModuleList(
+            [
+                SwinTransformerBlock(
+                    dim=c5,
+                    input_resolution=img_size // 16,
+                    num_heads=64,
+                    window_size=8,
+                )
+                for _ in range(2)
             ]
         )
 
-        self.final_norm = nn.LayerNorm(out_channels)
+        # ==================== 【DECODER 阶段】 ====================
+        # Stage 4 回弹: 8x8 -> 16x16
+        self.up4 = PatchExpanding(input_dim=c5)  # 2048 -> 1024
+        self.fusion4 = nn.Linear(c4 * 2, c4)  # 融合层：把skip连接的1024+1024映射回1024
+        self.dec_stage4 = nn.ModuleList(
+            [
+                SwinTransformerBlock(
+                    dim=c4,
+                    input_resolution=img_size // 8,
+                    num_heads=32,
+                    window_size=8,
+                )
+                for _ in range(2)
+            ]
+        )
+
+        # Stage 3 回弹: 16x16 -> 32x32
+        self.up3 = PatchExpanding(input_dim=c4)  # 1024 -> 512
+        self.fusion3 = nn.Linear(c3 * 2, c3)
+        self.dec_stage3 = nn.ModuleList(
+            [
+                SwinTransformerBlock(
+                    dim=c3,
+                    input_resolution=img_size // 4,
+                    num_heads=16,
+                    window_size=8,
+                )
+                for _ in range(2)
+            ]
+        )
+
+        # Stage 2 回弹: 32x32 -> 64x64
+        self.up2 = PatchExpanding(input_dim=c3)  # 512 -> 256
+        self.fusion2 = nn.Linear(c2 * 2, c2)
+        self.dec_stage2 = nn.ModuleList(
+            [
+                SwinTransformerBlock(
+                    dim=c2,
+                    input_resolution=img_size // 2,
+                    num_heads=8,
+                    window_size=8,
+                )
+                for _ in range(2)
+            ]
+        )
+
+        # Stage 1 回弹: 64x64 -> 128x128
+        self.up1 = PatchExpanding(input_dim=c2)  # 256 -> 128
+        self.fusion1 = nn.Linear(c1 * 2, c1)
+        self.dec_stage1 = nn.ModuleList(
+            [
+                SwinTransformerBlock(
+                    dim=c1, input_resolution=img_size, num_heads=4, window_size=8
+                )
+                for _ in range(2)
+            ]
+        )
+
+        self.final_norm = nn.LayerNorm(c1)
+
+    def _forward_blocks(self, blocks, x):
+        """辅助函数：带有 checkpoint 检查的 Block 遍历执行"""
+        for block in blocks:
+            if self.use_checkpoint and self.training:
+                # 采用稳定的 use_reentrant=False 机制
+                x = checkpoint(block, x, use_reentrant=False)
+            else:
+                x = block(x)
+        return x
 
     def forward(self, x):
         # 输入 x: [B, 32, 128, 128]
         x = self.stem(x)  # [B, 128, 128, 128]
+        x = x.permute(0, 2, 3, 1).contiguous()  # [B, 128, 128, 128]
 
-        # 转换至 Transformer 要求的通道末尾格式: [B, H, W, C]
-        x = x.permute(0, 2, 3, 1).contiguous()
+        # --------- ENCODER 递进与跳跃缓存 ---------
+        x = self._forward_blocks(self.enc_stage1, x)
+        skip1 = x  # 缓存 Stage 1 [B, 128, 128, 128]
 
-        # 遍历执行空间特征交融
-        for block in self.blocks:
-            x = block(x)
+        x = self.down1(x)  # -> [B, 64, 64, 256]
+        x = self._forward_blocks(self.enc_stage2, x)
+        skip2 = x  # 缓存 Stage 2 [B, 64, 64, 256]
 
+        x = self.down2(x)  # -> [B, 32, 32, 512]
+        x = self._forward_blocks(self.enc_stage3, x)
+        skip3 = x  # 缓存 Stage 3 [B, 32, 32, 512]
+
+        x = self.down3(x)  # -> [B, 16, 16, 1042]
+        x = self._forward_blocks(self.enc_stage4, x)
+        skip4 = x  # 缓存 Stage 4 [B, 16, 16, 1024]
+
+        x = self.down4(x)  # -> [B, 8, 8, 2048]
+
+        # --------- BOTTLENECK 最底层语义凝练 ---------
+        x = self._forward_blocks(self.bottleneck, x)  # [B, 8, 8, 2048]
+
+        # --------- DECODER 层层回弹与 U 型融合 ---------
+        # 融合 Stage 4
+        x = self.up4(x)  # 上采样 -> [B, 16, 16, 1024]
+        x = torch.cat([x, skip4], dim=-1)  # type: ignore # 拼接 -> [B, 16, 16, 2048]
+        x = self.fusion4(x)  # 降维 -> [B, 16, 16, 1024]
+        x = self._forward_blocks(self.dec_stage4, x)
+
+        # 融合 Stage 3
+        x = self.up3(x)  # 上采样 -> [B, 32, 32, 512]
+        x = torch.cat([x, skip3], dim=-1)  # type: ignore # 拼接 -> [B, 32, 32, 1024]
+        x = self.fusion3(x)  # 降维 -> [B, 32, 32, 512]
+        x = self._forward_blocks(self.dec_stage3, x)
+
+        # 融合 Stage 2
+        x = self.up2(x)  # 上采样 -> [B, 64, 64, 256]
+        x = torch.cat([x, skip2], dim=-1)  # type: ignore  # 拼接 -> [B, 64, 64, 512]
+        x = self.fusion2(x)  # 降维 -> [B, 64, 64, 256]
+        x = self._forward_blocks(self.dec_stage2, x)
+
+        # 融合 Stage 1
+        x = self.up1(x)  # 上采样 -> [B, 128, 128, 128]
+        x = torch.cat([x, skip1], dim=-1)  # type: ignore  # 拼接 -> [B, 128, 128, 256]
+        x = self.fusion1(x)  # 降维 -> [B, 128, 128, 128]
+        x = self._forward_blocks(self.dec_stage1, x)
+
+        # --------- 最终输出还原 ---------
         x = self.final_norm(x)
-
-        # 还原回 PyTorch 传统的 CNN 通道优先格式: [B, C, H, W]
         out = x.permute(0, 3, 1, 2).contiguous()
-        return out  # 输出 out: [B, 128, 128, 128]
+        return out  # 最终输出: [B, 128, 128, 128]

@@ -23,7 +23,7 @@ class StartUpMessage(EventMessage):
     test_las_folder: str
     preprocessed_folder: str
     area_size: float
-    voxel_params: VoxelParameters = field(default_factory=VoxelParameters)
+    voxel_params: VoxelParameters
     # 额外配置
     delete_labels: Optional[list[int]] = None
     device: str = "cpu"
