@@ -4,15 +4,14 @@ Licensed under the Apache License, Version 2.0.
 Project: seqconvnet
 """
 
+from typing import Union
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
-class Loss(nn.Module): ...
-
-
-class SoftDiceAndFocalLoss(Loss):
+class SoftDiceAndFocalLoss(nn.Module):
     def __init__(
         self,
         num_classes: int,
@@ -141,3 +140,9 @@ class MaeVoxelLoss(nn.Module):
         focal_loss = -((1 - pt) ** self.gamma) * log_pt
 
         return focal_loss.mean()
+
+
+Loss = Union[
+    SoftDiceAndFocalLoss,
+    MaeVoxelLoss,
+]

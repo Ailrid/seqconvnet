@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from typing import Union
 
 
 def mat2seq(x):
@@ -8,10 +9,7 @@ def mat2seq(x):
     return x.permute(0, 2, 3, 1).reshape(-1, num_steps)
 
 
-class HeightEmbedding(nn.Module): ...
-
-
-class StandardHeightEmbedding(HeightEmbedding):
+class StandardHeightEmbedding(nn.Module):
     def __init__(self, max_z=128, embed_size=32):
         super().__init__()
         # 长度为 max_z + 2 (包含 0~max_z 真实高度以及 Padding, EOS)
@@ -33,7 +31,7 @@ class StandardHeightEmbedding(HeightEmbedding):
         return self.static_table[x]  # type: ignore
 
 
-class HybridHeightEmbedding(HeightEmbedding):
+class HybridHeightEmbedding(nn.Module):
     def __init__(self, max_z=128, embed_size=32):
         super().__init__()
         max_len = max_z + 2
@@ -55,7 +53,7 @@ class HybridHeightEmbedding(HeightEmbedding):
         return self.static_table[x] + self.learnable_residual(x)  # type: ignore
 
 
-class MaskedHeightEmbedding(HeightEmbedding):
+class MaskedHeightEmbedding(nn.Module):
     def __init__(self, embed_size, max_z=128):
         super().__init__()
         # 【修正】改名叫 mask_id，避免和下面的 nn.Parameter 冲突
@@ -87,3 +85,8 @@ class MaskedHeightEmbedding(HeightEmbedding):
         # 把 MASK_ID 查出来的全 0 向量，替换为可学习的 mask_token
         out_feat = torch.where(mask_indices, self.mask_token, feat)
         return out_feat
+
+
+HeightEmbedding = Union[
+    StandardHeightEmbedding, HybridHeightEmbedding, MaskedHeightEmbedding
+]

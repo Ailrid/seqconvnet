@@ -205,9 +205,8 @@ def one_epoch(
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
-            # 计算精度,class从1开始，全部都+1
             pred_label = pred_mat.argmax(dim=1)
-            evaluator.update(pred_label, label_mat)
+            evaluator.update(pred_label + 1, label_mat)
             metrics = evaluator.compute_metrics()
             pbar.set_description(
                 f"Loss: {np.mean(l_statistic):.5f}, mIOU: {metrics.mIoU:.5f}, Lr: {scheduler.get_last_lr()[0]:.6f}"
