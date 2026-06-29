@@ -6,6 +6,8 @@ dependencies = [
     "seqconvnet-core", 
     "virid-core>=0.1.6",
     "virid-std>=0.1.6",
+    "matplotlib",
+    "seaborn",
 ]
 [tool.hatch.build.targets.wheel]
 packages = ["src/seqconvnet"]
