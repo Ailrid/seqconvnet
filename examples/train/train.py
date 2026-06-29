@@ -61,9 +61,9 @@ TrainingLightingMessage.send(
         dropout=0.1,
     ),
     env_params=EnvParameters(
-        lr=1e-3,
-        epochs=20,
-        warmup_epochs=0,
+        lr=5e-4,
+        epochs=100,
+        warmup_epochs=3,
         weight_decay=1e-3,
         device="cuda:0",
     ),

@@ -289,7 +289,7 @@ def create_env(
     # Warmup 阶段
     warmup_scheduler = LinearLR(
         optimizer,
-        start_factor=0.01,
+        start_factor=0.1,
         end_factor=1.0,
         total_iters=env_params.warmup_epochs,
     )
