@@ -29,17 +29,19 @@ class SoftDiceAndFocalLoss(nn.Module):
             device
         )
 
-    def forward(
-        self, pred: torch.Tensor, label: torch.Tensor, valid_len_mat: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, pred: torch.Tensor, label: torch.Tensor) -> torch.Tensor:
         # [B, num_classes, S, H, W] -> [B, S, H, W, num_classes]
-        pred_permuted = pred.permute(0, 2, 3, 4, 1).contiguous()
-        mask_bool = valid_len_mat.bool()
+        pred_filtered = (
+            pred.permute(0, 2, 3, 4, 1).reshape(-1, self.num_classes).contiguous()
+        )  # [N, num_classes]
+        target_filtered = (
+            label.permute(0, 2, 3, 4, 1)
+            .reshape(-1, self.num_classes)
+            .contiguous()
+            .long()
+        )  # [N]
 
-        pred_filtered = pred_permuted[mask_bool]  # [N, num_classes]
-        target_filtered = label[mask_bool].long()  # [N]
-
-        # 统一减 1 对齐到 0 ~ num_classes-1，刚好和你的 weights_tensor 索引完全重合！
+        # 统一减 1 对齐到 0 ~ num_classes-1
         target_filtered = target_filtered - 1
 
         legal_mask = (target_filtered >= 0) & (target_filtered < self.num_classes)
@@ -95,14 +97,17 @@ class SoftDiceAndCELoss(nn.Module):
             device
         )
 
-    def forward(
-        self, pred: torch.Tensor, label: torch.Tensor, valid_len_mat: torch.Tensor
-    ) -> torch.Tensor:
-        pred_permuted = pred.permute(0, 2, 3, 4, 1).contiguous()
-        mask_bool = valid_len_mat.bool()
-
-        pred_filtered = pred_permuted[mask_bool]
-        target_filtered = label[mask_bool].long()
+    def forward(self, pred: torch.Tensor, label: torch.Tensor) -> torch.Tensor:
+        # [B, num_classes, S, H, W] -> [B, S, H, W, num_classes]
+        pred_filtered = (
+            pred.permute(0, 2, 3, 4, 1).reshape(-1, self.num_classes).contiguous()
+        )  # [N, num_classes]
+        target_filtered = (
+            label.permute(0, 2, 3, 4, 1)
+            .reshape(-1, self.num_classes)
+            .contiguous()
+            .long()
+        )  # [N]
 
         # 统一减 1 对齐到 0 ~ num_classes-1
         target_filtered = target_filtered - 1

@@ -74,7 +74,8 @@ class TransformerShell(Network):
         return out
 
     @torch.no_grad()
-    def refer(self, input_mat: Tensor4D, valid_len_mat: Tensor4D):
+    def refer(self, input_mat: Tensor4D):
+        valid_len_mat = input_mat > 0
         pred = self.forward(input_mat)
         output = pred.argmax(dim=1) + 1
         return output * valid_len_mat
@@ -200,7 +201,7 @@ class MaeTransformerShell(TransformerShell):
         super().__init__(embedding, seq_encoder, conv_encoder, seq_decoder, classifier)
 
     @torch.no_grad()
-    def refer(self, input_mat: Tensor4D, valid_len_mat: Tensor4D):
+    def refer(self, input_mat: Tensor4D):
         pred = self.forward(input_mat)
         return pred
 

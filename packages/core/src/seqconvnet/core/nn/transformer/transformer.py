@@ -36,7 +36,7 @@ class TransformerEncoder(nn.Module):
             norm_first=True,  # 采用 Pre-LN 结构
         )
 
-        # 🛠️ 核心修改：显式定义最后一层的归一化组件
+        # 显式定义最后一层的归一化组件
         final_norm = nn.LayerNorm(d_model)
 
         # 将 final_norm 作为参数传给底层骨干，使其在最后一层结束时执行归一化

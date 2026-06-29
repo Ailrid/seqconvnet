@@ -19,7 +19,7 @@ class Network(torch.nn.Module):
         super().__init__()
 
     @abstractmethod
-    def refer(self, input_mat: Tensor4D, valid_len_mat: Tensor4D) -> Tensor4D:
+    def refer(self, input_mat: Tensor4D) -> Tensor4D:
         """ """
         raise NotImplementedError
 

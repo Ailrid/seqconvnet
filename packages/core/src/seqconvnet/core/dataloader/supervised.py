@@ -72,10 +72,9 @@ class TrainLoader(IterableDataset):
     def __iter__(self):
         if self.enhance_key:
             for _ in range(len(self.file_list)):
-                data_mat, valid_len_mat, label_mat, teach_mat = self.rand_read()
+                data_mat, label_mat, teach_mat = self.rand_read()
                 (
                     other_data_mat,
-                    other_valid_len_mat,
                     other_label_mat,
                     other_teach_mat,
                 ) = self.rand_read()
@@ -83,11 +82,9 @@ class TrainLoader(IterableDataset):
                 for _ in range(self.iter_times):
                     yield enhance(
                         data_mat,
-                        valid_len_mat,
                         label_mat,
                         teach_mat,
                         other_data_mat,
-                        other_valid_len_mat,
                         other_label_mat,
                         other_teach_mat,
                         self.input_size,
@@ -95,12 +92,11 @@ class TrainLoader(IterableDataset):
         else:
             # 最后几个不使用数据增强的迭代
             for _ in range(len(self.file_list)):
-                data_mat, valid_len_mat, label_mat, teach_mat = self.rand_read()
+                data_mat, label_mat, teach_mat = self.rand_read()
                 # 迭代 iter_times 次
                 for _ in range(self.iter_times):
                     yield get_las_mat(
                         data_mat,
-                        valid_len_mat,
                         label_mat,
                         teach_mat,
                         self.input_size,
@@ -121,10 +117,9 @@ class TrainLoader(IterableDataset):
 
         # 加载数据
         data_mat = torch.load(data_path)
-        valid_len_mat = (data_mat != 0).to(torch.float32)
         label_mat = torch.load(label_path)
         teach_mat = torch.load(teach_path)
-        return data_mat, valid_len_mat, label_mat, teach_mat
+        return data_mat, label_mat, teach_mat
 
 
 class TestLoader(IterableDataset):
@@ -152,15 +147,11 @@ class TestLoader(IterableDataset):
         for file_idx in range(len(self.file_list)):
             file_name = self.file_list[file_idx]
             data_path = os.path.join(self.data_folder, file_name)
-            valid_len_path = os.path.join(
-                self.data_folder, file_name.replace(".input", ".valid_len")
-            )
             label_path = os.path.join(
                 self.label_folder, file_name.replace(".input", ".label")
             )
             # 加载数据
             input_mat = torch.load(data_path)
-            valid_len_mat = torch.load(valid_len_path)
             label_mat = torch.load(label_path)
 
-            yield (input_mat, valid_len_mat, label_mat)
+            yield (input_mat, label_mat)

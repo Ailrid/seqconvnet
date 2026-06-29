@@ -66,11 +66,9 @@ def montage(
 
 def enhance(
     input_mat: Tensor3D,
-    valid_len_mat: Tensor3D,
     label_mat: Tensor3D,
     teach_mat: Tensor3D,
     other_input_mat: Tensor3D,
-    other_valid_len_mat: Tensor3D,
     other_label_mat: Tensor3D,
     other_teach_mat: Tensor3D,
     input_size: int,
@@ -78,13 +76,11 @@ def enhance(
     # 组装两个独立样本的组件群
     group_A = [
         input_mat,
-        valid_len_mat,
         label_mat,
         teach_mat,
     ]
     group_B = [
         other_input_mat,
-        other_valid_len_mat,
         other_label_mat,
         other_teach_mat,
     ]
@@ -119,26 +115,22 @@ def enhance(
     final_input = montage(
         area_1[0], area_2[0], area_3[0], area_4[0], x_pos, y_pos, input_size, max_dim
     )
-    final_valid = montage(
-        area_1[1], area_2[1], area_3[1], area_4[1], x_pos, y_pos, input_size, max_dim
-    )
     final_label = montage(
-        area_1[2], area_2[2], area_3[2], area_4[2], x_pos, y_pos, input_size, max_dim
+        area_1[1], area_2[1], area_3[1], area_4[1], x_pos, y_pos, input_size, max_dim
     )
 
     final_teach = montage(
-        area_1[3], area_2[3], area_3[3], area_4[3], x_pos, y_pos, input_size, max_dim
+        area_1[2], area_2[2], area_3[2], area_4[2], x_pos, y_pos, input_size, max_dim
     )
 
     # 长度截断逻辑
-    l = int(torch.sum(final_valid, dim=0).max().item())
+    l = int(torch.sum(final_input > 0, dim=0).max().item())
     if l == 0:
         l = 1
 
     # 组装并返回
     return (
         final_input[:l, :, :],
-        final_valid[:l, :, :],
         final_label[:l, :, :],
         final_teach[:l, :, :],
     )
@@ -146,7 +138,6 @@ def enhance(
 
 def get_las_mat(
     input_mat: Tensor3D,
-    valid_len_mat: Tensor3D,
     label_mat: Tensor3D,
     teach_mat: Tensor3D,
     input_size: int,
@@ -159,9 +150,6 @@ def get_las_mat(
     area_input_mat = input_mat[
         :, start_row : start_row + input_size, start_col : start_col + input_size
     ]
-    area_valid_len_mat = valid_len_mat[
-        :, start_row : start_row + input_size, start_col : start_col + input_size
-    ]
     area_label_mat = label_mat[
         :, start_row : start_row + input_size, start_col : start_col + input_size
     ]
@@ -169,5 +157,4 @@ def get_las_mat(
         :, start_row : start_row + input_size, start_col : start_col + input_size
     ]
 
-    return area_input_mat, area_valid_len_mat, area_label_mat, area_teach_mat
-
+    return area_input_mat, area_label_mat, area_teach_mat
