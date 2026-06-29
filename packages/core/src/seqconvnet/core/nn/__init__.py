@@ -9,3 +9,4 @@ from .rnn import *
 from .transformer import *
 from .interface import *
 from .loss import *
+from .embedding import *

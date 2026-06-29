@@ -13,12 +13,10 @@ from torch.utils.data import DataLoader
 
 def test_test_loader():
 
-    device = "cuda"
-
     voxel_params = VoxelParameters(
         xy_resolution=0.5,
         z_resolution=0.5,
-        max_z=64,
+        max_z=128,
         min_rows=128,
         min_cols=128,
     )
@@ -29,7 +27,7 @@ def test_test_loader():
     loader = DataLoader(loader, batch_size=1)
     # 统计label总数
     unique_labels_set = set()
-    for input_mat, valid_len_mat, label_mat in loader:
+    for input_mat, label_mat in loader:
         current_labels = torch.unique(label_mat)
         unique_labels_set.update(current_labels.cpu().numpy())
 

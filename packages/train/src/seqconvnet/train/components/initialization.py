@@ -11,7 +11,7 @@ from seqconvnet.core import (
     VoxelParameters,
     Network,
     SegmentationEvaluator,
-    SoftDiceAndFocalLoss,
+    Loss,
 )
 from virid.core import component
 from dataclasses import dataclass
@@ -31,7 +31,7 @@ class LightParameters:
 @dataclass()
 class ModelConfig:
     model: Network
-    loss: SoftDiceAndFocalLoss
+    loss: Loss
 
 
 @component()

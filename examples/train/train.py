@@ -39,7 +39,7 @@ TrainingLightingMessage.send(
             1.4449,
         ],
         batch_size=1,  # 建议设置为1
-        num_workers=4,  # 数据加载线程
+        num_workers=2,  # 数据加载线程
         input_size=128,  # 输入给网络的大小，单位是像素，每块的长和宽就是 input_size * xy_resolution
         area_size=128,  # 点云切块的大小，单位是米
         iter_times=1,  # 每个切块点云上的迭代次数
@@ -57,14 +57,14 @@ TrainingLightingMessage.send(
         model_type="transformer",
         d_model=32,  # transformer 的 d_model 或者 rnn 的 hidden_size
         nhead=2,  # transformer 的 nhead
-        num_layers=3,  # transformer 的 num_layers
+        num_layers=2,  # transformer 的 num_layers
         dropout=0.1,
     ),
     env_params=EnvParameters(
-        lr=5e-4,
+        lr=1e-3,
         epochs=20,
-        warmup_epochs=5,
-        weight_decay=1e-2,
+        warmup_epochs=0,
+        weight_decay=1e-3,
         device="cuda:0",
     ),
 )

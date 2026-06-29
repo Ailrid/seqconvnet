@@ -11,6 +11,7 @@ from ..nn.interface import Network
 from ..dataloader.supervised import PredLoader
 import laspy
 
+
 def get_label_from_mat(label_mat: Tensor3D, data_mat: DataMat, device: str) -> Tensor1D:
     """从标签矩阵里获得每个点的结果"""
 
@@ -43,7 +44,6 @@ def get_label_from_mat(label_mat: Tensor3D, data_mat: DataMat, device: str) -> T
     ]
 
     return pred_point_label
-
 
 
 def yield_input_mat(input_mat: Tensor4D, valid_len_mat: Tensor4D, input_size: int):
@@ -88,26 +88,19 @@ def yield_input_mat(input_mat: Tensor4D, valid_len_mat: Tensor4D, input_size: in
                     row_begin:row_end,
                     col_begin:col_end,
                 ],
-                valid_len_mat[
-                    :,
-                    :valid_len,
-                    row_begin:row_end,
-                    col_begin:col_end,
-                ],
                 (row_begin, col_begin),
             )
 
 
 def refer_mat(
     input_mat: Tensor4D,
-    valid_len_mat: Tensor4D,
     net: Network,
     input_size: int,
 ) -> Tensor4D:
     """推理一个不定大小的输入矩阵,输出和input_mat的形状相同"""
 
     batch_size, num_step, num_rows, num_cols = input_mat.shape
-
+    valid_len_mat = (input_mat != 0).to(torch.float32)
     if num_rows < input_size or num_cols < input_size:
         raise ValueError("The input size is too large.")
 
@@ -117,10 +110,8 @@ def refer_mat(
         device=input_mat.device,
     )
 
-    for area_input_mat, area_valid_len_mat, pos in yield_input_mat(
-        input_mat, valid_len_mat, input_size
-    ):
-        pred = net.refer(area_input_mat, area_valid_len_mat)
+    for area_input_mat, pos in yield_input_mat(input_mat, valid_len_mat, input_size):
+        pred = net.refer(area_input_mat)
         pred_mat[
             :,
             : pred.shape[1],
@@ -153,7 +144,6 @@ def refer_file(
 
         pred_mat = refer_mat(
             data_mat.input_mat,
-            data_mat.valid_len_mat,
             net,
             input_size,
         )

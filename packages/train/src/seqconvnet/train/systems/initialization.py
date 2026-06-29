@@ -14,6 +14,7 @@ from virid.core import system, ViridApp, MessageWriter
 
 from seqconvnet.core import (
     SoftDiceAndFocalLoss,
+    SoftDiceAndCELoss,
     SwinEncoder,
     CustomConvEncoder,
     RnnClassifier,
@@ -30,6 +31,7 @@ from seqconvnet.core import (
     TransformerClassifier,
     TransformerShell,
     StandardHeightEmbedding,
+    HybridHeightEmbedding,
 )
 
 from ..messages.initialization import (
@@ -139,10 +141,14 @@ def create_transformer_model(
     model_params = light_params.model_params
     env_params = light_params.env_params
     dataset_params = light_params.dataset_params
-    embedding = StandardHeightEmbedding(
+    embedding = HybridHeightEmbedding(
         dataset_params.voxel_params.max_z,
         model_params.d_model,
     )
+    # embedding = StandardHeightEmbedding(
+    #     dataset_params.voxel_params.max_z,
+    #     model_params.d_model,
+    # )
     # 组装网络
     seq_encoder = TransformerEncoder(
         model_params.d_model,
@@ -176,11 +182,10 @@ def create_transformer_model(
         embedding, seq_encoder, conv_encoder, seq_decoder, classifier
     ).to(env_params.device)
 
-    loss = SoftDiceAndFocalLoss(
+    loss = SoftDiceAndCELoss(
         dataset_params.num_classes,
         dataset_params.classes_weights,
-        device=env_params.device,
-    )
+    ).to(env_params.device)
     app.spawn(
         ModelConfig(
             model=model,
@@ -251,7 +256,6 @@ def create_rnn_model(
     loss = SoftDiceAndFocalLoss(
         dataset_params.num_classes,
         dataset_params.classes_weights,
-        device=env_params.device,
     )
     app.spawn(
         ModelConfig(

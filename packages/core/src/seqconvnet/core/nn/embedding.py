@@ -35,7 +35,6 @@ class HybridHeightEmbedding(StandardHeightEmbedding):
         super().__init__()
         max_len = max_z + 2
 
-        # 1. 🛠️ 依然保留你引以为傲的静态物理表（提供坚实的物理和泛化底座）
         P = torch.zeros((max_len, embed_size))
         X = torch.arange(max_len, dtype=torch.float32).reshape(-1, 1) / torch.pow(
             10000, torch.arange(0, embed_size, 2, dtype=torch.float32) / embed_size
@@ -44,11 +43,8 @@ class HybridHeightEmbedding(StandardHeightEmbedding):
         P[:, 1::2] = torch.cos(X)
         self.register_buffer("static_table", P)
 
-        # 2. 🛠️ 引入一个可学习的“残差修正表”
+        # 引入一个可学习的“残差修正表”
         self.learnable_residual = nn.Embedding(max_len, embed_size)
-
-        # 3. 🛠️ 极其关键：使用极小的标准差初始化（比如 0.001），或者全 0 初始化
-        # 这样在训练刚启动和前几轮，它几乎等于0，模型完全依赖静态表
         nn.init.normal_(self.learnable_residual.weight, mean=0.0, std=0.001)
 
     def forward(self, x):

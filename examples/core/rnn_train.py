@@ -169,11 +169,11 @@ def benchmark():
             total=len(cast(TrainLoader, train_loader)),
         ) as pbar:
             l_statistic = []
-            for input_mat, valid_len_mat, label_mat, teach_mat in pbar:
+            for input_mat, label_mat, teach_mat in pbar:
                 optimizer.zero_grad()
                 # [B, num_classes, S, H, W]
                 pred_mat = model(input_mat, teach_mat)
-                l = loss(pred_mat, label_mat, valid_len_mat)
+                l = loss(pred_mat, label_mat)
                 l_statistic.append(l.cpu().item())
                 l.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -181,7 +181,7 @@ def benchmark():
 
                 # 计算精度,class从1开始，全部都+1
                 pred_label = pred_mat.argmax(dim=1) + 1
-                evaluator.update(pred_label, label_mat, valid_len_mat)
+                evaluator.update(pred_label, label_mat)
 
                 pbar.set_description(f"Loss:{np.mean(l_statistic):.5f}")
 

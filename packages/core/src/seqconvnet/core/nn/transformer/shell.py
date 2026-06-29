@@ -40,7 +40,7 @@ class TransformerShell(Network):
         # 显式记录 d_model，供后面 view 形状变换使用
         self.d_model = seq_encoder.d_model
 
-    def forward(self, input_mat: Tensor4D, _teach_mat=None):
+    def forward(self, input_mat: Tensor4D, teach_mat=None):
         batch_size, step_len, height, width = input_mat.shape
 
         # 扁平化输入
