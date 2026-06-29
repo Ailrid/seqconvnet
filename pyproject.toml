@@ -6,6 +6,8 @@ dependencies = [
     "seqconvnet-core",
     "seqconvnet-train",
     "seqconvnet-preprocess",
+    "matplotlib>=3.11.0",
+    "seaborn>=0.13.2",
 ]
 
 [tool.uv.workspace]
@@ -23,18 +25,17 @@ virid-std = { index = "virid" }
 [tool.hatch.build.targets.wheel]
 bypass-selection = true
 
+
+[[tool.uv.index]]
+name = "virid"
+url = "https://mirrors.aliyun.com/pypi/simple/"
+default = true
+
 [[tool.uv.index]]
 name = "pytorch-cuda"
 # url = "https://download.pytorch.org/whl/cu132"
 url = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu124/"
 explicit = true
-
-
-[[tool.uv.index]]
-name = "virid"
-#url = "https://pypi.org/simple"
-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
-default = true
 
 [build-system]
 requires = ["hatchling"]

@@ -16,16 +16,10 @@ class TrainingState:
     timestamp: str = ""
     # 当前的轮数
     current_epoch: int = 0
-    # 当前epoch的混淆矩阵
-    hist_matrix: list[list[int]] = field(default_factory=lambda: list())
-    # 当前epoch的评估指标
-    current_metrics: SegmentationMetrics = field(default_factory=SegmentationMetrics)
-    # 最好的一次评估指标
-    best_metrics: SegmentationMetrics = field(default_factory=SegmentationMetrics)
-    # 最好的一次的混淆矩阵
-    best_hist_matrix: list[list[int]] = field(default_factory=lambda: list())
-    #  train_loss
-    train_loss: list[float] = field(default_factory=lambda: list())
+    # 当前epoch的损失
+    current_metrics: float = 0
+    # 最好的一次损失
+    best_metrics: float = 0
     # 日志路径
     log_folder: str = ""
     # 模型保存路径

@@ -1,7 +1,7 @@
 """
 Copyright (c) 2026-present Ailrid.
 Licensed under the Apache License, Version 2.0.
-Project: seqconvnet
+Project: seqconvnet (Refactored & Fixed)
 """
 
 import torch
@@ -19,6 +19,9 @@ class PatchMerging(nn.Module):
 
     def forward(self, x):
         B, H, W, C = x.shape
+        # 确保分辨率能被2整除
+        assert H % 2 == 0 and W % 2 == 0, f"输入分辨率 ({H}x{W}) 无法被 2 整除"
+
         x0 = x[:, 0::2, 0::2, :]
         x1 = x[:, 1::2, 0::2, :]
         x2 = x[:, 0::2, 1::2, :]
@@ -46,13 +49,9 @@ class PatchExpanding(nn.Module):
 
 
 def window_partition(x, window_size=8):
-    """
-    将 [B, H, W, C] 转换为 [B * num_windows, window_size, window_size, C]
-    """
+    """将 [B, H, W, C] 转换为 [B * num_windows, window_size, window_size, C]"""
     B, H, W, C = x.shape
-    # 划分成一个个标准小窗口
     x = x.view(B, H // window_size, window_size, W // window_size, window_size, C)
-    # 排列组合并打扁成 Batch 维度
     windows = (
         x.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size, window_size, C)
     )
@@ -60,9 +59,7 @@ def window_partition(x, window_size=8):
 
 
 def window_reverse(windows, window_size, H, W):
-    """
-    将窗口特征还原回原本的图像形状 [B, H, W, C]
-    """
+    """将窗口特征还原回原本的图像形状 [B, H, W, C]"""
     B = windows.shape[0] // ((H // window_size) * (W // window_size))
     x = windows.view(
         B, H // window_size, W // window_size, window_size, window_size, -1
@@ -72,9 +69,7 @@ def window_reverse(windows, window_size, H, W):
 
 
 class WindowAttention(nn.Module):
-    """
-    基于 PyTorch 原生 nn.MultiheadAttention 优化的窗口自注意力模块
-    """
+    """基于 PyTorch 原生 nn.MultiheadAttention 优化的窗口自注意力模块"""
 
     def __init__(self, dim, window_size, num_heads):
         super().__init__()
@@ -82,8 +77,6 @@ class WindowAttention(nn.Module):
         self.window_size = window_size
         self.num_heads = num_heads
 
-        # 规范化改进：使用 PyTorch 工业级原生多头注意力
-        # batch_first=True 确保输入输出形状规整为 [B*, N, C]，内部自动集成 QKV 投影与 Out 映射层
         self.attn = nn.MultiheadAttention(
             embed_dim=dim, num_heads=num_heads, batch_first=True, bias=True
         )
@@ -100,16 +93,15 @@ class WindowAttention(nn.Module):
             nW = mask.shape[0]
             num_repeats = B_ // nW
 
-            # 适配 PyTorch 官方标配的注意力掩码形状 [B_ * num_heads, N, N]
-            # 这里的 mask 已经是初始化算好的 BoolTensor (True 表示屏蔽，False 表示保留)
-            attn_mask = mask.repeat(num_repeats, 1, 1)  # [B_, N, N]
-            attn_mask = attn_mask.unsqueeze(1).repeat(
-                1, self.num_heads, 1, 1
-            )  # [B_, num_heads, N, N]
-            attn_mask = attn_mask.view(-1, N, N)  # [B_ * num_heads, N, N]
+            # 🛠️ 核心修复 4：摒弃会产生实体内存复制的 .repeat()
+            # 改用高级广播机制 .expand() 建立虚拟视图，在底层只进行一次 reshape，杜绝显存碎片化
+            attn_mask = (
+                mask.unsqueeze(0)
+                .unsqueeze(2)
+                .expand(num_repeats, -1, self.num_heads, -1, -1)
+            )
+            attn_mask = attn_mask.reshape(-1, N, N)
 
-        # 将 x 同时作为 Query, Key, Value 传入
-        # self.attn 返回一个元组 (output_tensor, weights_tensor)，我们通过 [0] 只取特征输出
         attn_output, _ = self.attn(query=x, key=x, value=x, attn_mask=attn_mask)
         return attn_output
 
@@ -135,16 +127,24 @@ class Mlp(nn.Module):
 
 class SwinTransformerBlock(nn.Module):
     """
-    单个 Swin Transformer 块：包含连续的 W-MSA（标准窗口）与 SW-MSA（滑动窗口）
+    🛠️ 核心修复 1 & 3：重构为符合官方标准的“单层”组件。
+    通过外部传入的 shift_size 控制行为。内部自动校验低层分辨率，防止 Mask 退化失败。
     """
 
-    def __init__(self, dim, input_resolution, num_heads, window_size=8):
+    def __init__(self, dim, input_resolution, num_heads, window_size=8, shift_size=0):
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
         self.num_heads = num_heads
         self.window_size = window_size
-        self.shift_size = window_size // 2  # 滑动步长为窗口大小的一半 (4)
+
+        # 🛠️ 核心修复 3：动态边界检查
+        # 当输入特征图分辨率降到与窗口一样大时（例如Bottleneck的8x8），强制将位移设为0，
+        # 使其完美退化为标准的全局窗口自注意力，防止错误的 Mask 把特征切碎。
+        if self.input_resolution <= self.window_size:
+            self.shift_size = 0
+        else:
+            self.shift_size = shift_size
 
         self.norm1 = nn.LayerNorm(dim)
         self.attn = WindowAttention(dim, window_size, num_heads)
@@ -152,14 +152,16 @@ class SwinTransformerBlock(nn.Module):
         self.norm2 = nn.LayerNorm(dim)
         self.mlp = Mlp(dim, dim * 4)
 
-        # 在模型初始化时，提前离线计算好滑动窗口的布尔掩码矩阵，节省显存与在线算力
-        self.register_buffer(
-            "attn_mask",
-            self._create_mask(input_resolution, window_size, self.shift_size),
-        )
+        # 只有在真正需要位移（SW-MSA）时，才离线计算并缓存注意力掩码
+        if self.shift_size > 0:
+            attn_mask = self._create_mask(
+                input_resolution, window_size, self.shift_size
+            )
+            self.register_buffer("attn_mask", attn_mask)
+        else:
+            self.attn_mask = None
 
     def _create_mask(self, res, win_size, shift_size):
-        # 创建一个和图像大小一致的辅助矩阵，用来给不同切片区域打上独一无二的标签数字
         img_mask = torch.zeros((1, res, res, 1))
         h_slices = (
             slice(0, -win_size),
@@ -178,62 +180,34 @@ class SwinTransformerBlock(nn.Module):
                 img_mask[:, h, w, :] = cnt
                 cnt += 1
 
-        # 划分窗口并打扁
-        mask_windows = window_partition(
-            img_mask, win_size
-        )  # [nW, win_size, win_size, 1]
+        mask_windows = window_partition(img_mask, win_size)
         mask_windows = mask_windows.view(-1, win_size * win_size)
-
-        # 利用广播机制做差，差值不为 0 的地方说明跨越了不该交互的物理边界
         attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
-
-        # 规范化改进：直接返回布尔矩阵（True 代表跨边界需要‘消音’，False 代表可以正常交互）
-        # 这把计算开销直接压缩到了初始化阶段
         return attn_mask != 0
 
     def forward(self, x):
-        # x 形状: [B, H, W, C]
         H, W = self.input_resolution, self.input_resolution
         C = self.dim
 
-        # ------------------ 第一阶段：标准局部窗口自注意力 (W-MSA) ------------------
         shortcut = x
         x = self.norm1(x)
+
+        # 🛠️ 核心修复 1：根据当前层的属性动态触发循环位移 (torch.roll)
+        if self.shift_size > 0:
+            shifted_x = torch.roll(
+                x, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2)
+            )
+        else:
+            shifted_x = x
 
         # 窗口切分与展平
-        x_windows = window_partition(x, self.window_size)
-        x_windows = x_windows.view(-1, self.window_size * self.window_size, C)
-
-        # 计算注意力（标准窗口不需要 mask）
-        attn_windows = self.attn(x_windows, mask=None)
-
-        # 特征还原与残差连接
-        x = window_reverse(
-            attn_windows.view(-1, self.window_size, self.window_size, C),
-            self.window_size,
-            H,
-            W,
-        )
-        x = shortcut + x
-        x = x + self.mlp(self.norm2(x))
-
-        # ------------------ 第二阶段：移位/滑动窗口自注意力 (SW-MSA) ------------------
-        shortcut = x
-        x = self.norm1(x)
-
-        # 核心：使用 torch.roll 算子在空间分辨率上进行循环位移
-        shifted_x = torch.roll(
-            x, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2)
-        )
-
-        # 再次切分窗口并展平
         x_windows = window_partition(shifted_x, self.window_size)
         x_windows = x_windows.view(-1, self.window_size * self.window_size, C)
 
-        # 计算滑动注意力（注入模型初始化时存好的边缘布尔掩码）
+        # 计算自注意力（传入缓存的 self.attn_mask，若为标准 W-MSA 则是 None）
         attn_windows = self.attn(x_windows, mask=self.attn_mask)
 
-        # 还原窗口特征
+        # 特征几何还原
         shifted_x = window_reverse(
             attn_windows.view(-1, self.window_size, self.window_size, C),
             self.window_size,
@@ -241,13 +215,17 @@ class SwinTransformerBlock(nn.Module):
             W,
         )
 
-        # 核心反向还原：沿反方向 roll 回去，把特征在空间几何位置上完全对齐
-        x = torch.roll(
-            shifted_x, shifts=(self.shift_size, self.shift_size), dims=(1, 2)
-        )
+        # 如果进行了前向循环位移，反向传播前必须等量 roll 回去对齐空间几何
+        if self.shift_size > 0:
+            x = torch.roll(
+                shifted_x, shifts=(self.shift_size, self.shift_size), dims=(1, 2)
+            )
+        else:
+            x = shifted_x
+
+        # 残差连接与 FFN
         x = shortcut + x
         x = x + self.mlp(self.norm2(x))
-
         return x
 
 
@@ -272,18 +250,33 @@ class SwinEncoder(nn.Module):
         # 0. Stem 映射层 (128x128)
         self.stem = nn.Sequential(
             nn.Conv2d(in_channels, c1, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(c1),
+            # nn.BatchNorm2d(c1),
+            nn.GroupNorm(num_groups=16, num_channels=c1, eps=1e-6, affine=True),
             nn.GELU(),
         )
 
-        # ==================== 【ENCODER 阶段】 ====================
+        # 引入可学习的绝对位置编码
+        self.absolute_pos_embed = nn.Parameter(torch.zeros(1, img_size, img_size, c1))
+        nn.init.trunc_normal_(self.absolute_pos_embed, std=0.02)
+
+
         # Stage 1: [128x128], dim=128, heads=4
         self.enc_stage1 = nn.ModuleList(
             [
                 SwinTransformerBlock(
-                    dim=c1, input_resolution=img_size, num_heads=4, window_size=8
-                )
-                for _ in range(2)
+                    dim=c1,
+                    input_resolution=img_size,
+                    num_heads=4,
+                    window_size=8,
+                    shift_size=0,
+                ),
+                SwinTransformerBlock(
+                    dim=c1,
+                    input_resolution=img_size,
+                    num_heads=4,
+                    window_size=8,
+                    shift_size=4,
+                ),
             ]
         )
         self.down1 = PatchMerging(dim=c1)  # 128 -> 64
@@ -296,8 +289,15 @@ class SwinEncoder(nn.Module):
                     input_resolution=img_size // 2,
                     num_heads=8,
                     window_size=8,
-                )
-                for _ in range(2)
+                    shift_size=0,
+                ),
+                SwinTransformerBlock(
+                    dim=c2,
+                    input_resolution=img_size // 2,
+                    num_heads=8,
+                    window_size=8,
+                    shift_size=4,
+                ),
             ]
         )
         self.down2 = PatchMerging(dim=c2)  # 64 -> 32
@@ -310,8 +310,15 @@ class SwinEncoder(nn.Module):
                     input_resolution=img_size // 4,
                     num_heads=16,
                     window_size=8,
-                )
-                for _ in range(2)
+                    shift_size=0,
+                ),
+                SwinTransformerBlock(
+                    dim=c3,
+                    input_resolution=img_size // 4,
+                    num_heads=16,
+                    window_size=8,
+                    shift_size=4,
+                ),
             ]
         )
         self.down3 = PatchMerging(dim=c3)  # 32 -> 16
@@ -324,15 +331,22 @@ class SwinEncoder(nn.Module):
                     input_resolution=img_size // 8,
                     num_heads=32,
                     window_size=8,
-                )
-                for _ in range(2)
+                    shift_size=0,
+                ),
+                SwinTransformerBlock(
+                    dim=c4,
+                    input_resolution=img_size // 8,
+                    num_heads=32,
+                    window_size=8,
+                    shift_size=4,
+                ),
             ]
         )
         self.down4 = PatchMerging(dim=c4)  # 16 -> 8
 
         # ==================== 【BOTTLENECK 最底层】 ====================
         # Bottleneck: [8x8], dim=2048, heads=64
-        # 此时特征图大小与窗口大小一致(8x8)，滑动窗口会退化为标准全局/窗口交互，完美闭环
+        # 提示：在这里虽然写了 shift_size=4，但在初始化阶段会被核心修复3自动重置为0，完美确保全局无阻碍交互。
         self.bottleneck = nn.ModuleList(
             [
                 SwinTransformerBlock(
@@ -340,15 +354,22 @@ class SwinEncoder(nn.Module):
                     input_resolution=img_size // 16,
                     num_heads=64,
                     window_size=8,
-                )
-                for _ in range(2)
+                    shift_size=0,
+                ),
+                SwinTransformerBlock(
+                    dim=c5,
+                    input_resolution=img_size // 16,
+                    num_heads=64,
+                    window_size=8,
+                    shift_size=4,
+                ),
             ]
         )
 
         # ==================== 【DECODER 阶段】 ====================
         # Stage 4 回弹: 8x8 -> 16x16
         self.up4 = PatchExpanding(input_dim=c5)  # 2048 -> 1024
-        self.fusion4 = nn.Linear(c4 * 2, c4)  # 融合层：把skip连接的1024+1024映射回1024
+        self.fusion4 = nn.Linear(c4 * 2, c4)
         self.dec_stage4 = nn.ModuleList(
             [
                 SwinTransformerBlock(
@@ -356,8 +377,15 @@ class SwinEncoder(nn.Module):
                     input_resolution=img_size // 8,
                     num_heads=32,
                     window_size=8,
-                )
-                for _ in range(2)
+                    shift_size=0,
+                ),
+                SwinTransformerBlock(
+                    dim=c4,
+                    input_resolution=img_size // 8,
+                    num_heads=32,
+                    window_size=8,
+                    shift_size=4,
+                ),
             ]
         )
 
@@ -371,8 +399,15 @@ class SwinEncoder(nn.Module):
                     input_resolution=img_size // 4,
                     num_heads=16,
                     window_size=8,
-                )
-                for _ in range(2)
+                    shift_size=0,
+                ),
+                SwinTransformerBlock(
+                    dim=c3,
+                    input_resolution=img_size // 4,
+                    num_heads=16,
+                    window_size=8,
+                    shift_size=4,
+                ),
             ]
         )
 
@@ -386,8 +421,15 @@ class SwinEncoder(nn.Module):
                     input_resolution=img_size // 2,
                     num_heads=8,
                     window_size=8,
-                )
-                for _ in range(2)
+                    shift_size=0,
+                ),
+                SwinTransformerBlock(
+                    dim=c2,
+                    input_resolution=img_size // 2,
+                    num_heads=8,
+                    window_size=8,
+                    shift_size=4,
+                ),
             ]
         )
 
@@ -397,9 +439,19 @@ class SwinEncoder(nn.Module):
         self.dec_stage1 = nn.ModuleList(
             [
                 SwinTransformerBlock(
-                    dim=c1, input_resolution=img_size, num_heads=4, window_size=8
-                )
-                for _ in range(2)
+                    dim=c1,
+                    input_resolution=img_size,
+                    num_heads=4,
+                    window_size=8,
+                    shift_size=0,
+                ),
+                SwinTransformerBlock(
+                    dim=c1,
+                    input_resolution=img_size,
+                    num_heads=4,
+                    window_size=8,
+                    shift_size=4,
+                ),
             ]
         )
 
@@ -409,16 +461,18 @@ class SwinEncoder(nn.Module):
         """辅助函数：带有 checkpoint 检查的 Block 遍历执行"""
         for block in blocks:
             if self.use_checkpoint and self.training:
-                # 采用稳定的 use_reentrant=False 机制
                 x = checkpoint(block, x, use_reentrant=False)
             else:
                 x = block(x)
         return x
 
     def forward(self, x):
-        # 输入 x: [B, 32, 128, 128]
+        # x: [B, 32, 128, 128]
         x = self.stem(x)  # [B, 128, 128, 128]
         x = x.permute(0, 2, 3, 1).contiguous()  # [B, 128, 128, 128]
+
+        # 在骨干网络前叠加位置编码特征
+        x = x + self.absolute_pos_embed
 
         # --------- ENCODER 递进与跳跃缓存 ---------
         x = self._forward_blocks(self.enc_stage1, x)
@@ -432,7 +486,9 @@ class SwinEncoder(nn.Module):
         x = self._forward_blocks(self.enc_stage3, x)
         skip3 = x  # 缓存 Stage 3 [B, 32, 32, 512]
 
-        x = self.down3(x)  # -> [B, 16, 16, 1042]
+        x = self.down3(
+            x
+        )  # 🛠️ 细节小瑕疵修正：注释修正为真实的通道数 -> [B, 16, 16, 1024]
         x = self._forward_blocks(self.enc_stage4, x)
         skip4 = x  # 缓存 Stage 4 [B, 16, 16, 1024]
 
@@ -462,8 +518,10 @@ class SwinEncoder(nn.Module):
 
         # 融合 Stage 1
         x = self.up1(x)  # 上采样 -> [B, 128, 128, 128]
-        x = torch.cat([x, skip1], dim=-1)  # type: ignore  # 拼接 -> [B, 128, 128, 256]
+        x = torch.cat([x, skip1], dim=-1)  # type: ignore # 拼接 -> [B, 128, 128, 256]
         x = self.fusion1(x)  # 降维 -> [B, 128, 128, 128]
+
+        # 🛠️ 已修复：删除了多余的 "self.dec_stage1 =" 赋值
         x = self._forward_blocks(self.dec_stage1, x)
 
         # --------- 最终输出还原 ---------

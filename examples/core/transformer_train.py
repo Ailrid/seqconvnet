@@ -29,6 +29,8 @@ from torch.utils.data import DataLoader
 from torch import optim
 from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
 
+from seqconvnet.core.nn.embedding import StandardHeightEmbedding
+
 warnings.filterwarnings("ignore", message=".*nested_tensor.*")
 
 
@@ -58,23 +60,50 @@ def get_optimizer_and_scheduler(model, lr, warmup_epochs, epochs, weight_decay):
     return optimizer, scheduler
 
 
-def get_model(num_classes, max_z, d_model, nhead, num_layers, dropout, device):
-    seq_encoder = TransformerEncoder(max_z, d_model, nhead, num_layers, dropout).to(
-        device
-    )
-    # conv_encoder = CustomSegFormerB0(d_model, d_model).to(device)
-    conv_encoder = SwinEncoder(d_model, d_model, 128).to(device)
-    seq_decoder = TransformerDecoder(
-        num_classes, d_model, nhead, num_layers, dropout
-    ).to(device)
-    classifier = TransformerClassifier(d_model, num_classes)
+def get_model(
+    input_size, num_classes, max_z, d_model, nhead, num_layers, dropout, device
+):
 
-    return TransformerShell(seq_encoder, conv_encoder, seq_decoder, classifier).to(
-        device
+    embedding = StandardHeightEmbedding(
+        max_z,
+        d_model,
     )
+    # 组装网络
+    seq_encoder = TransformerEncoder(
+        d_model,
+        nhead,
+        num_layers,
+        dropout,
+    )
+
+    conv_encoder = SwinEncoder(d_model, d_model, input_size)
+
+    # conv_encoder = CustomConvEncoder(
+    #     d_model,
+    #     d_model,
+    # )
+
+    seq_decoder = TransformerDecoder(
+        d_model,
+        nhead,
+        num_layers,
+        dropout,
+    )
+
+    classifier = TransformerClassifier(
+        num_classes,
+        d_model,
+    )
+
+    model = TransformerShell(
+        embedding, seq_encoder, conv_encoder, seq_decoder, classifier
+    ).to(device)
+
+    return model
 
 
 def benchmark():
+    input_size = 128
     max_z = 128
     d_model = 16
     nhead = 2
@@ -102,7 +131,6 @@ def benchmark():
             iter_times=1,
             input_size=128,
             voxel_params=voxel_params,
-            device=device,
         )
     )
     evaluator = SegmentationEvaluator(num_classes, True)
@@ -119,7 +147,9 @@ def benchmark():
             1.2322,
         ],
     )
-    model = get_model(num_classes, max_z, d_model, nhead, num_layers, dropout, device)
+    model = get_model(
+        input_size, num_classes, max_z, d_model, nhead, num_layers, dropout, device
+    )
     optimizer, scheduler = get_optimizer_and_scheduler(
         model, lr, warmup_epochs, epochs, weight_decay
     )

@@ -33,13 +33,19 @@ class TransformerEncoder(nn.Module):
             dropout=dropout,
             activation="gelu",
             batch_first=True,
-            norm_first=True,
+            norm_first=True,  # 采用 Pre-LN 结构
         )
+
+        # 🛠️ 核心修改：显式定义最后一层的归一化组件
+        final_norm = nn.LayerNorm(d_model)
+
+        # 将 final_norm 作为参数传给底层骨干，使其在最后一层结束时执行归一化
         self.transformer_encoder = nn.TransformerEncoder(
-            encoder_layer=encoder_layer, num_layers=num_layers
+            encoder_layer=encoder_layer,
+            num_layers=num_layers,
+            norm=final_norm,  # <--- 注入最终的 LayerNorm
         )
         self.dropout = nn.Dropout(dropout)
-        # 这里的 apply 初始化只会初始化编码器内部的 Linear 层，非常安全
         self.apply(init_weights)
 
     def forward(self, seq_embedding, seq_mask):
@@ -48,10 +54,9 @@ class TransformerEncoder(nn.Module):
             seq_embedding: [B * H * W, S, d_model]
             seq_mask:   [B * H * W, S]
         """
-
-        # 直接应用 dropout 并送入 Transformer 骨干
         x = self.dropout(seq_embedding)
-        # seq_feat = self.transformer_encoder(x, src_key_padding_mask=seq_mask)
+
+        # 此时得到的 seq_feat 已经过了 final_norm，数值分布极其健康
         seq_feat = checkpoint(
             self.transformer_encoder,
             x,
@@ -87,10 +92,16 @@ class TransformerDecoder(nn.Module):
             dropout=dropout,
             activation="gelu",
             batch_first=True,
-            norm_first=True,
+            norm_first=True,  # 采用 Pre-LN 结构
         )
+
+        # 🛠️ 核心修改：为解码时序提纯器显式定义最后一层的归一化组件
+        final_norm = nn.LayerNorm(d_model)
+
         self.temporal_sequence_refiner = nn.TransformerEncoder(
-            decoder_layer, num_layers=num_layers
+            decoder_layer,
+            num_layers=num_layers,
+            norm=final_norm,  # <--- 注入最终的 LayerNorm
         )
         self.apply(init_weights)
 
@@ -109,9 +120,7 @@ class TransformerDecoder(nn.Module):
         combined_feat = torch.cat([seq_feat, spatial_feat_broadcasted], dim=-1)
         fused_feat = self.feature_fusion(combined_feat)
 
-        # refined_feat = self.temporal_sequence_refiner(
-        #     fused_feat, src_key_padding_mask=seq_mask
-        # )
+        # 此时输出的 refined_feat 均值和方差重新回归正常分布，让分类器更好吃透特征
         refined_feat = checkpoint(
             self.temporal_sequence_refiner,
             fused_feat,

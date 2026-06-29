@@ -25,7 +25,6 @@ def test_test_loader():
     loader = TestLoader(
         root_folder="preprocessed/dales_las/test",
         voxel_params=voxel_params,
-        device=device,
     )
     loader = DataLoader(loader, batch_size=1)
     # 统计label总数

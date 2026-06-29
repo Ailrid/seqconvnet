@@ -43,3 +43,10 @@ class Network(torch.nn.Module):
         加载模型参数
         """
         raise NotImplementedError
+
+    @abstractmethod
+    def save_mae_checkpoint(self, path: str, best_metrics: float) -> None:
+        """
+        加载模型参数
+        """
+        raise NotImplementedError

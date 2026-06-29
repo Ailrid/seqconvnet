@@ -30,7 +30,33 @@ class StandardHeightEmbedding(nn.Module):
         return self.static_table[x]  # type: ignore
 
 
-class MaskedHeightEmbedding(nn.Module):
+class HybridHeightEmbedding(StandardHeightEmbedding):
+    def __init__(self, max_z=128, embed_size=32):
+        super().__init__()
+        max_len = max_z + 2
+
+        # 1. 🛠️ 依然保留你引以为傲的静态物理表（提供坚实的物理和泛化底座）
+        P = torch.zeros((max_len, embed_size))
+        X = torch.arange(max_len, dtype=torch.float32).reshape(-1, 1) / torch.pow(
+            10000, torch.arange(0, embed_size, 2, dtype=torch.float32) / embed_size
+        )
+        P[:, 0::2] = torch.sin(X)
+        P[:, 1::2] = torch.cos(X)
+        self.register_buffer("static_table", P)
+
+        # 2. 🛠️ 引入一个可学习的“残差修正表”
+        self.learnable_residual = nn.Embedding(max_len, embed_size)
+
+        # 3. 🛠️ 极其关键：使用极小的标准差初始化（比如 0.001），或者全 0 初始化
+        # 这样在训练刚启动和前几轮，它几乎等于0，模型完全依赖静态表
+        nn.init.normal_(self.learnable_residual.weight, mean=0.0, std=0.001)
+
+    def forward(self, x):
+        # 静态大底座 + 动态小修正
+        return self.static_table[x] + self.learnable_residual(x)  # type: ignore
+
+
+class MaskedHeightEmbedding(StandardHeightEmbedding):
     def __init__(self, embed_size, max_z=128):
         super().__init__()
         # 【修正】改名叫 mask_id，避免和下面的 nn.Parameter 冲突
@@ -54,7 +80,7 @@ class MaskedHeightEmbedding(nn.Module):
 
     def forward(self, x):
         # 查表，拿到 [B*H*W, S, d_model]
-        feat = self.static_table[x] # type: ignore
+        feat = self.static_table[x]  # type: ignore
 
         # 【修正】使用 self.mask_id 进行精准布尔匹配
         mask_indices = (x == self.mask_id).unsqueeze(-1)  # [B*H*W, S, 1]

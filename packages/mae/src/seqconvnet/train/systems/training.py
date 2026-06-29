@@ -13,6 +13,7 @@ from dataclasses import asdict
 from virid.core import system, ViridApp, MessageWriter
 from virid.std import execute_block
 from seqconvnet.core import TrainLoader, refer_mat
+from seqconvnet.core.utils.pred import yield_input_mat
 
 from ..messages.training import (
     TrainingLightingMessage,
@@ -22,7 +23,6 @@ from ..messages.training import (
     EvalMessage,
     LoadMaeCheckPointMessage,
     LoadCheckPointMessage,
-    PlotStateMessage,
 )
 from ..components import (
     ModelConfig,
@@ -38,7 +38,7 @@ from ..messages.initialization import (
     CreateDatasetMessage,
     CreateLoggerAndCheckpointMessage,
 )
-from ..util import confirm_light_params, plot_training_state
+from ..util import confirm_light_params
 
 
 class Color:
@@ -77,7 +77,7 @@ def training_lighting(message: TrainingLightingMessage, app: ViridApp):
 
         # 在日志初始化之后才能开始打印
         MessageWriter.info(
-            "============ Start Up Training ============ \n"
+            "============ Start Up Mae Training ============ \n"
             f"Model Params: {json.dumps(asdict(message.model_params),indent=4, ensure_ascii=False)}\n"
             f"Training Params: {json.dumps(asdict(message.env_params),indent=4, ensure_ascii=False)}\n"
             f"Dataset Params: {json.dumps(asdict(message.dataset_params),indent=4, ensure_ascii=False)}\n"
@@ -120,14 +120,11 @@ def save_checkpoint(
 ) -> None:
     checkpoint_folder = training_state.checkpoint_folder
     current_metrics = training_state.current_metrics
-    hist_matrix = training_state.hist_matrix
     best_metrics = training_state.best_metrics
-
     # 只保存最好的一轮
-    if current_metrics.mIoU > best_metrics.mIoU:
+    if current_metrics > best_metrics:
         training_state.best_metrics = current_metrics
-        training_state.best_hist_matrix = hist_matrix
-        model_config.model.save_checkpoint(
+        model_config.model.save_mae_checkpoint(
             checkpoint_folder, training_state.best_metrics
         )
 
@@ -144,7 +141,7 @@ def load_checkpoint(
     model_config.model.load_checkpoint(checkpoint_folder)
 
     MessageWriter.info(
-        "============ Load CheckPoint Successfully ============ \n"
+        "============ Load Mae CheckPoint Successfully ============ \n"
         f"From Checkpoint Folder: {checkpoint_folder}\n"
         f"Confirmed Light Parameters:\n{check_result}\n"
     )
@@ -166,22 +163,14 @@ def one_epoch(
     training_state: TrainingState,
 ) -> None:
     device = env_config.device
-
-    evaluator = env_config.evaluator
-    evaluator.reset()
-
     loss = model_config.loss
     model = model_config.model
     optimizer = env_config.optimizer
     scheduler = env_config.scheduler
-
-    train_loss = training_state.train_loss
-
+    model.train()
     MessageWriter.info(
         f"\n{Color.ORANGE}{Color.BOLD} ------------------------------- Train  -------------------------------- {Color.END}\n"
     )
-
-    model.train()
     with tqdm(
         dataset_config.train_loader,
         desc=f"Epoch {message.epoch}",
@@ -190,32 +179,26 @@ def one_epoch(
         * dataset_config.num_workers,
     ) as pbar:
         l_statistic = []
-        for input_mat, valid_len_mat, label_mat, teach_mat in pbar:
+        for mask_input_mat, valid_len_mat, label_mat in pbar:
 
-            input_mat = input_mat.to(device)
+            mask_input_mat = mask_input_mat.to(device)
             valid_len_mat = valid_len_mat.to(device)
-            label_mat = label_mat.to(device)
-            teach_mat = teach_mat.to(device)
 
             optimizer.zero_grad()
             # [B, num_classes, S, H, W]
-            pred_mat = model(input_mat, teach_mat)
+            pred_mat = model(mask_input_mat, None)
             l = loss(pred_mat, label_mat, valid_len_mat)
             l_statistic.append(l.cpu().item())
             l.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
-            # 计算精度,class从1开始，全部都+1
-            pred_label = pred_mat.argmax(dim=1) + 1
-            evaluator.update(pred_label, label_mat, valid_len_mat)
             pbar.set_description(f"Loss: {np.mean(l_statistic):.5f}")
 
     scheduler.step()
-    _, _, report_str = evaluator.print_metrics()
+    training_state.current_metrics = np.mean(l_statistic).item()
+    report_str = f"Eval Loss: {training_state.current_metrics:.5f}"
     MessageWriter.info(report_str)
-    train_loss.append(np.mean(l_statistic).item())
-
     # 最后10个 epoch 关闭数据增强
     if env_config.epochs - message.epoch <= 10:
         cast(TrainLoader, dataset_config.train_loader.dataset).toggle_enhance()
@@ -230,9 +213,8 @@ def eval_net(
     training_state: TrainingState,
 ) -> None:
     device = env_config.device
-    evaluator = env_config.evaluator
-    evaluator.reset()
     model = model_config.model
+    loss = model_config.loss
     model.eval()
     MessageWriter.info(
         f"\n{Color.BLUE}{Color.BOLD} ------------------------------- Test -------------------------------- {Color.END}\n"
@@ -244,33 +226,52 @@ def eval_net(
             leave=False,
             total=len(cast(TrainLoader, dataset_config.test_loader.dataset)),
         ) as pbar:
-            for input_mat, valid_len_mat, label_mat in pbar:
+            l_statistic = []
+            for mask_input_mat, valid_len_mat, label_mat in pbar:
 
-                input_mat = input_mat.to(device)
+                input_mat = mask_input_mat.to(device)
                 valid_len_mat = valid_len_mat.to(device)
                 label_mat = label_mat.to(device)
 
                 # [B, num_classes, S, H, W]
-                pred_label = refer_mat(
-                    input_mat,
-                    valid_len_mat,
-                    model,
-                    dataset_config.input_size,
+                batch_size, num_step, num_rows, num_cols = input_mat.shape
+
+                if (
+                    num_rows < dataset_config.input_size
+                    or num_cols < dataset_config.input_size
+                ):
+                    raise ValueError("The input size is too large.")
+
+                pred_mat = torch.zeros(
+                    (
+                        batch_size,
+                        dataset_config.voxel_params.max_z,
+                        num_step,
+                        num_rows,
+                        num_cols,
+                    ),
+                    dtype=torch.int64,
+                    device=input_mat.device,
                 )
-                evaluator.update(pred_label, label_mat, valid_len_mat)
 
-        hist_matrix, current_metrics, report_str = evaluator.print_metrics()
-        training_state.hist_matrix = hist_matrix
-        training_state.current_metrics = current_metrics
+                for area_input_mat, area_valid_len_mat, pos in yield_input_mat(
+                    input_mat, valid_len_mat, dataset_config.input_size
+                ):
+                    pred = model.refer(area_input_mat, area_valid_len_mat)
+                    pred_mat[
+                        :,
+                        :,
+                        : pred.shape[2],
+                        pos[0] : pos[0] + dataset_config.input_size,
+                        pos[1] : pos[1] + dataset_config.input_size,
+                    ] = pred
 
+                l = loss(pred_mat, label_mat, valid_len_mat)
+                l_statistic.append(l.cpu().item())
+
+        training_state.current_metrics = np.mean(l_statistic).item()
+        report_str = f"Eval Loss: {training_state.current_metrics:.5f}"
         MessageWriter.info(report_str)
-
-
-@system(message_type=PlotStateMessage)
-def plot_state(
-    training_state: TrainingState,
-) -> None:
-    plot_training_state(training_state)
 
 
 @system(message_type=StartTrainingMessage)
@@ -300,7 +301,6 @@ def start_training(env_config: EnvConfig, train_state: TrainingState) -> None:
         OneEpochMessage.send(train_state.current_epoch)
         EvalMessage.send(train_state.current_epoch)
         SaveCheckPointMessage.send()
-        PlotStateMessage.send()
 
 
 def register_training_systems(app: ViridApp):
@@ -313,4 +313,3 @@ def register_training_systems(app: ViridApp):
 
     app.register(one_epoch)
     app.register(eval_net)
-    app.register(plot_state)

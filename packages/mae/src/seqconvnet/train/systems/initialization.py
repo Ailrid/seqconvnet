@@ -13,23 +13,22 @@ from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
 from virid.core import system, ViridApp, MessageWriter
 
 from seqconvnet.core import (
-    SoftDiceAndFocalLoss,
+    MaeVoxelLoss,
     SwinEncoder,
     CustomConvEncoder,
     RnnClassifier,
     RnnDecoder,
     RnnEncoder,
     RnnShell,
-    SegmentationEvaluator,
-    TestLoader,
-    TrainLoader,
+    MaeTestLoader,
+    MaeTrainLoader,
 )
 from seqconvnet.core import (
     TransformerEncoder,
     TransformerDecoder,
     TransformerClassifier,
-    TransformerShell,
-    StandardHeightEmbedding,
+    MaeTransformerShell,
+    MaskedHeightEmbedding,
 )
 
 from ..messages.initialization import (
@@ -77,7 +76,7 @@ def create_logger_and_checkpoint(
     # 保存一份训练设置到checkpoint文件夹中
     save_light_params(checkpoint_folder, light_params)
     MessageWriter.info(
-        "============ Create Logger And Checkpoint Done ============ \n"
+        "============ Create Mae Logger And Checkpoint Done ============ \n"
         f"Logger Folder: {logger_folder}\n"
         f"Checkpoint Folder: {checkpoint_folder}\n"
     )
@@ -91,8 +90,9 @@ def create_dataset(
     dataset_params = light_params.dataset_params
 
     train_loader = DataLoader(
-        TrainLoader(
+        MaeTrainLoader(
             dataset_params.train_las_folder,
+            dataset_params.mask_ratio,
             dataset_params.iter_times,
             dataset_params.input_size,
             dataset_params.voxel_params,
@@ -101,8 +101,9 @@ def create_dataset(
         num_workers=dataset_params.num_workers,
     )
     test_loader = DataLoader(
-        TestLoader(
+        MaeTestLoader(
             dataset_params.test_las_folder,
+            dataset_params.mask_ratio,
             dataset_params.voxel_params,
         ),
         batch_size=dataset_params.batch_size,
@@ -114,20 +115,18 @@ def create_dataset(
             train_loader=train_loader,
             test_loader=test_loader,
             voxel_params=dataset_params.voxel_params,
-            num_classes=dataset_params.num_classes,
             num_workers=dataset_params.num_workers,
+            mask_ratio=dataset_params.mask_ratio,
         )
     )
     MessageWriter.info(
-        "============ Create Dataset Done ============ \n"
+        "============ Create Mae Dataset Done ============ \n"
         f"Train Las Folder: {dataset_params.train_las_folder}\n"
         f"Test Las Folder: {dataset_params.test_las_folder}\n"
-        f"Num Classes: {dataset_params.num_classes}\n"
         f"Iter Times: {dataset_params.iter_times}\n"
         f"Input Size: {dataset_params.input_size}\n"
         f"Area Size: {dataset_params.area_size}\n"
         f"Voxel Params: {dataset_params.voxel_params}\n"
-        f"Classes Weights: {dataset_params.classes_weights}\n"
     )
 
 
@@ -139,7 +138,7 @@ def create_transformer_model(
     model_params = light_params.model_params
     env_params = light_params.env_params
     dataset_params = light_params.dataset_params
-    embedding = StandardHeightEmbedding(
+    embedding = MaskedHeightEmbedding(
         dataset_params.voxel_params.max_z,
         model_params.d_model,
     )
@@ -168,18 +167,16 @@ def create_transformer_model(
     )
 
     classifier = TransformerClassifier(
-        dataset_params.num_classes,
+        dataset_params.voxel_params.max_z,
         model_params.d_model,
     )
 
-    model = TransformerShell(
+    model = MaeTransformerShell(
         embedding, seq_encoder, conv_encoder, seq_decoder, classifier
     ).to(env_params.device)
 
-    loss = SoftDiceAndFocalLoss(
-        dataset_params.num_classes,
-        dataset_params.classes_weights,
-        device=env_params.device,
+    loss = MaeVoxelLoss(
+        dataset_params.voxel_params.max_z,
     )
     app.spawn(
         ModelConfig(
@@ -188,84 +185,12 @@ def create_transformer_model(
         )
     )
     MessageWriter.info(
-        "============ Create Transformer Model Done ============ \n"
+        "============ Create Mae Transformer Model Done ============ \n"
         f"Max Z: { dataset_params.voxel_params.max_z}\n"
         f"Dim Model: {model_params.d_model}\n"
         f"Num Head: {model_params.nhead}\n"
         f"NUm Layers: {model_params.num_layers}\n"
         f"Dropout: {model_params.dropout}\n"
-        f"Classes Weights: {dataset_params.classes_weights}\n"
-    )
-
-
-@system(message_type=CreateRnnMessage)
-def create_rnn_model(
-    app: ViridApp,
-    light_params: LightParameters,
-) -> None:
-    model_params = light_params.model_params
-    env_params = light_params.env_params
-    dataset_params = light_params.dataset_params
-    # 组装网络
-    encoder_embedding = StandardHeightEmbedding(
-        dataset_params.voxel_params.max_z,
-        model_params.d_model,
-    )
-    # 这里 + 2, max_z + 2 给 BOS 一个位置, 0 给 PAD 一个位置
-    decoder_embedding = torch.nn.Embedding(
-        dataset_params.voxel_params.max_z + 2, model_params.d_model
-    )
-
-    seq_encoder = RnnEncoder(
-        model_params.d_model,
-        model_params.d_model,
-        model_params.num_layers,
-        model_params.dropout,
-    )
-
-    conv_encoder = SwinEncoder(
-        model_params.d_model, model_params.d_model, dataset_params.input_size
-    )
-
-    seq_decoder = RnnDecoder(
-        2 * model_params.d_model,
-        model_params.d_model,
-        model_params.num_layers,
-        model_params.dropout,
-    )
-
-    classifier = RnnClassifier(
-        dataset_params.num_classes,
-        model_params.d_model,
-    )
-
-    model = RnnShell(
-        encoder_embedding,
-        decoder_embedding,
-        seq_encoder,
-        conv_encoder,
-        seq_decoder,
-        classifier,
-    ).to(env_params.device)
-
-    loss = SoftDiceAndFocalLoss(
-        dataset_params.num_classes,
-        dataset_params.classes_weights,
-        device=env_params.device,
-    )
-    app.spawn(
-        ModelConfig(
-            model=model,
-            loss=loss,
-        )
-    )
-    MessageWriter.info(
-        "============ Create Rnn Model Done ============ \n"
-        f"Max Z: { dataset_params.voxel_params.max_z}\n"
-        f"Dim Model: {model_params.d_model}\n"
-        f"Num Layers: {model_params.num_layers}\n"
-        f"Dropout: {model_params.dropout}\n"
-        f"Classes Weights: {dataset_params.classes_weights}\n"
     )
 
 
@@ -285,14 +210,14 @@ def create_env(
     # Warmup 阶段
     warmup_scheduler = LinearLR(
         optimizer,
-        start_factor=0.01,
+        start_factor=0.1,
         end_factor=1.0,
         total_iters=env_params.warmup_epochs,
     )
     cosine_scheduler = CosineAnnealingLR(
         optimizer,
         T_max=(env_params.epochs - env_params.warmup_epochs),
-        eta_min=1e-7,
+        eta_min=1e-6,
     )
     scheduler = SequentialLR(
         optimizer,
@@ -300,13 +225,11 @@ def create_env(
         milestones=[env_params.warmup_epochs],
     )
 
-    evaluator = SegmentationEvaluator(light_params.dataset_params.num_classes, True)
     app.spawn(
         EnvConfig(
             lr=env_params.lr,
             epochs=env_params.epochs,
             warmup_epochs=env_params.warmup_epochs,
-            evaluator=evaluator,
             scheduler=scheduler,
             optimizer=optimizer,
             device=env_params.device,
@@ -314,7 +237,7 @@ def create_env(
     )
 
     MessageWriter.info(
-        "============ Create Train Env Done ============ \n"
+        "============ Create Mae Train Env Done ============ \n"
         f"Lr: {env_params.lr}\n"
         f"Weight Decay: {env_params.weight_decay}\n"
         f"Epochs: {env_params.epochs}\n"
@@ -326,6 +249,5 @@ def create_env(
 def register_initialization_systems(app: ViridApp):
     app.register(create_dataset)
     app.register(create_transformer_model)
-    app.register(create_rnn_model)
     app.register(create_env)
     app.register(create_logger_and_checkpoint)

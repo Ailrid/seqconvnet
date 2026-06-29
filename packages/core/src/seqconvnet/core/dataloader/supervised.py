@@ -111,9 +111,7 @@ class TrainLoader(IterableDataset):
         file_idx = torch.randint(0, len(self.file_list), (1,))[0]
         file_name = self.file_list[file_idx]
         data_path = os.path.join(self.data_folder, file_name)
-        valid_len_path = os.path.join(
-            self.data_folder, file_name.replace(".input", ".valid_len")
-        )
+
         label_path = os.path.join(
             self.label_folder, file_name.replace(".input", ".label")
         )
@@ -123,7 +121,7 @@ class TrainLoader(IterableDataset):
 
         # 加载数据
         data_mat = torch.load(data_path)
-        valid_len_mat = torch.load(valid_len_path)
+        valid_len_mat = (data_mat != 0).to(torch.float32)
         label_mat = torch.load(label_path)
         teach_mat = torch.load(teach_path)
         return data_mat, valid_len_mat, label_mat, teach_mat

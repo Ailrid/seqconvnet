@@ -323,10 +323,6 @@ def preprocess_las_file(
             data_mat.input_mat.cpu(),
             os.path.join(data_folder, f"{file_name}_{x}_{y}.input"),
         )
-        torch.save(
-            data_mat.valid_len_mat.cpu(),
-            os.path.join(data_folder, f"{file_name}_{x}_{y}.valid_len"),
-        )
         # 写入标签
         torch.save(
             label_mat.label_mat.cpu(),
@@ -361,10 +357,6 @@ def mae_preprocess_las_file(
         torch.save(
             data_mat.input_mat.cpu(),
             os.path.join(data_folder, f"{file_name}_{x}_{y}.input"),
-        )
-        torch.save(
-            data_mat.valid_len_mat.cpu(),
-            os.path.join(data_folder, f"{file_name}_{x}_{y}.valid_len"),
         )
 
 

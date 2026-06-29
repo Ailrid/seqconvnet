@@ -19,10 +19,15 @@ class MaeTrainLoader(IterableDataset):
     def __init__(
         self,
         root_folder: str,
+        mask_ratio: float,
         iter_times: int,
         input_size: int,
         voxel_params: VoxelParameters,
     ):
+        self.eos = voxel_params.max_z + 2
+        self.mask_id = voxel_params.max_z + 3
+
+        self.mask_ratio = mask_ratio
         self.iter_times = iter_times
         self.data_folder = os.path.join(root_folder, "data")
         self.file_list = [
@@ -70,7 +75,8 @@ class MaeTrainLoader(IterableDataset):
                         valid_len_mat,
                         self.input_size,
                     )
-                    yield area_input_mat, area_valid_len_mat
+                    mask_input_mat = self.mask(area_input_mat)
+                    yield mask_input_mat, area_valid_len_mat, area_input_mat
 
     def rand_read(self):
         """随机读取一个文件的数据和标签"""
@@ -86,6 +92,19 @@ class MaeTrainLoader(IterableDataset):
         valid_len_mat = torch.load(valid_len_path)
         return data_mat, valid_len_mat
 
+    def mask(self, input_mat):
+        # 找出哪些位置既不是空气(>0)，也不是结束符(<eos)
+        without_eos_mask = (input_mat < self.eos) & (input_mat > 0)  # [B * H * W, S]
+        # 生成与输入形状一致的随机矩阵
+        rand_matrix = torch.rand(input_mat.shape, device=input_mat.device)
+
+        # 只有在有效体素且随机数小于掩码率的地方，才触发真正的 MAE 遮罩
+        mae_mask = without_eos_mask & (rand_matrix < self.mask_ratio)  # [B * H * W, S]
+
+        masked_seq_input = input_mat.clone()
+        masked_seq_input[mae_mask] = self.mask_id
+        return masked_seq_input
+
 
 class MaeTestLoader(IterableDataset):
     """
@@ -95,8 +114,12 @@ class MaeTestLoader(IterableDataset):
     def __init__(
         self,
         root_folder: str,
+        mask_ratio: float,
         voxel_params: VoxelParameters,
     ):
+        self.eos = voxel_params.max_z + 2
+        self.mask_id = voxel_params.max_z + 3
+        self.mask_ratio = mask_ratio
         self.data_folder = os.path.join(root_folder, "data")
         self.label_folder = os.path.join(root_folder, "label")
         self.file_list = [
@@ -112,12 +135,22 @@ class MaeTestLoader(IterableDataset):
         for file_idx in range(len(self.file_list)):
             file_name = self.file_list[file_idx]
             data_path = os.path.join(self.data_folder, file_name)
-            valid_len_path = os.path.join(
-                self.data_folder, file_name.replace(".input", ".valid_len")
-            )
 
             # 加载数据
             input_mat = torch.load(data_path)
-            valid_len_mat = torch.load(valid_len_path)
+            valid_len_mat = (input_mat != 0).to(torch.float32)
 
-            yield (input_mat, valid_len_mat)
+            yield (self.mask(input_mat), valid_len_mat, input_mat)
+
+    def mask(self, input_mat):
+        # 找出哪些位置既不是空气(>0)，也不是结束符(<eos)
+        without_eos_mask = (input_mat < self.eos) & (input_mat > 0)  # [B * H * W, S]
+        # 生成与输入形状一致的随机矩阵
+        rand_matrix = torch.rand(input_mat.shape, device=input_mat.device)
+
+        # 只有在有效体素且随机数小于掩码率的地方，才触发真正的 MAE 遮罩
+        mae_mask = without_eos_mask & (rand_matrix < self.mask_ratio)  # [B * H * W, S]
+
+        masked_seq_input = input_mat.clone()
+        masked_seq_input[mae_mask] = self.mask_id
+        return masked_seq_input

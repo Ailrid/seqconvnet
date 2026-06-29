@@ -56,13 +56,13 @@ TrainingLightingMessage.send(
         checkpoint_folder=None,
         model_type="transformer",
         d_model=32,  # transformer 的 d_model 或者 rnn 的 hidden_size
-        nhead=4,  # transformer 的 nhead
+        nhead=2,  # transformer 的 nhead
         num_layers=3,  # transformer 的 num_layers
         dropout=0.1,
     ),
     env_params=EnvParameters(
-        lr=1e-3,
-        epochs=100,
+        lr=5e-4,
+        epochs=20,
         warmup_epochs=5,
         weight_decay=1e-2,
         device="cuda:0",

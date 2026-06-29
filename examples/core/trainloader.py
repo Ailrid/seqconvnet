@@ -49,7 +49,6 @@ def restore_mat(
 
 def test_train_loader():
 
-    device = "cuda"
     mat_point_path = "mat_point.las"
     voxel_params = VoxelParameters(
         xy_resolution=0.5,
