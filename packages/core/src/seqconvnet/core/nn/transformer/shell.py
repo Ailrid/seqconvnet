@@ -16,7 +16,7 @@ from .transformer import (
     TransformerClassifier,
 )
 from ..interface import Network
-from ..embedding import mat2seq, StandardHeightEmbedding, MaskedHeightEmbedding
+from ..embedding import mat2seq, HeightEmbedding, MaskedHeightEmbedding
 from ...utils import SegmentationMetrics
 from dataclasses import asdict
 
@@ -25,7 +25,7 @@ class TransformerShell(Network):
 
     def __init__(
         self,
-        embedding: StandardHeightEmbedding,
+        embedding: HeightEmbedding,
         seq_encoder: TransformerEncoder,
         conv_encoder: torch.nn.Module,
         seq_decoder: TransformerDecoder,

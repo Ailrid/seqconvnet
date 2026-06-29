@@ -206,7 +206,7 @@ def one_epoch(
             optimizer.step()
 
             # 计算精度,class从1开始，全部都+1
-            pred_label = pred_mat.argmax(dim=1) + 1
+            pred_label = pred_mat.argmax(dim=1)
             evaluator.update(pred_label, label_mat)
             metrics = evaluator.compute_metrics()
             pbar.set_description(

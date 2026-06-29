@@ -33,7 +33,7 @@ class DatasetParameters:
     iter_times: int = 1
     input_size: int = 128
     area_size: float = 128
-    voxel_params: VoxelParameters = field(default_factory=VoxelParameters)
+    voxel_params: VoxelParameters = None # type: ignore
 
 
 @dataclass()
