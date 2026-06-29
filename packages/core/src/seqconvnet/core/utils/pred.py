@@ -100,7 +100,7 @@ def refer_mat(
     """推理一个不定大小的输入矩阵,输出和input_mat的形状相同"""
 
     batch_size, num_step, num_rows, num_cols = input_mat.shape
-    valid_len_mat = (input_mat != 0).to(torch.float32)
+    valid_len_mat = (input_mat != 0).to(torch.int32)
     if num_rows < input_size or num_cols < input_size:
         raise ValueError("The input size is too large.")
 
