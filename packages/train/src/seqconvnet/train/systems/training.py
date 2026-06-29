@@ -210,7 +210,7 @@ def one_epoch(
             evaluator.update(pred_label, label_mat)
             metrics = evaluator.compute_metrics()
             pbar.set_description(
-                f"Loss: {np.mean(l_statistic):.5f}, mIOU: {metrics.mIoU:.5f}"
+                f"Loss: {np.mean(l_statistic):.5f}, mIOU: {metrics.mIoU:.5f}, Lr: {scheduler.get_last_lr()[0]:.6f}"
             )
 
     scheduler.step()

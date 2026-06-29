@@ -14,7 +14,6 @@ from virid.core import system, ViridApp, MessageWriter
 
 from seqconvnet.core import (
     SoftDiceAndFocalLoss,
-    SoftDiceAndCELoss,
     SwinEncoder,
     CustomConvEncoder,
     RnnClassifier,
@@ -182,10 +181,11 @@ def create_transformer_model(
         embedding, seq_encoder, conv_encoder, seq_decoder, classifier
     ).to(env_params.device)
 
-    loss = SoftDiceAndCELoss(
+    loss = SoftDiceAndFocalLoss(
         dataset_params.num_classes,
         dataset_params.classes_weights,
     ).to(env_params.device)
+
     app.spawn(
         ModelConfig(
             model=model,
