@@ -234,11 +234,8 @@ class SwinEncoder(nn.Module):
     4阶深层主网络：支持 128 -> 64 -> 32 -> 16 -> 8 的全对称U型特征感应器
     """
 
-    def __init__(
-        self, in_channels=32, out_channels=128, img_size=128, use_checkpoint=True
-    ):
+    def __init__(self, in_channels=32, out_channels=128, img_size=128):
         super().__init__()
-        self.use_checkpoint = use_checkpoint
 
         # 动态计算 5 个层级的通道数
         c1 = out_channels  # Stage 1: 128
@@ -259,212 +256,184 @@ class SwinEncoder(nn.Module):
         self.absolute_pos_embed = nn.Parameter(torch.zeros(1, img_size, img_size, c1))
         nn.init.trunc_normal_(self.absolute_pos_embed, std=0.02)
 
-
         # Stage 1: [128x128], dim=128, heads=4
-        self.enc_stage1 = nn.ModuleList(
-            [
-                SwinTransformerBlock(
-                    dim=c1,
-                    input_resolution=img_size,
-                    num_heads=4,
-                    window_size=8,
-                    shift_size=0,
-                ),
-                SwinTransformerBlock(
-                    dim=c1,
-                    input_resolution=img_size,
-                    num_heads=4,
-                    window_size=8,
-                    shift_size=4,
-                ),
-            ]
+        self.enc_stage1 = nn.Sequential(
+            SwinTransformerBlock(
+                dim=c1,
+                input_resolution=img_size,
+                num_heads=4,
+                window_size=8,
+                shift_size=0,
+            ),
+            SwinTransformerBlock(
+                dim=c1,
+                input_resolution=img_size,
+                num_heads=4,
+                window_size=8,
+                shift_size=4,
+            ),
         )
         self.down1 = PatchMerging(dim=c1)  # 128 -> 64
 
         # Stage 2: [64x64], dim=256, heads=8
-        self.enc_stage2 = nn.ModuleList(
-            [
-                SwinTransformerBlock(
-                    dim=c2,
-                    input_resolution=img_size // 2,
-                    num_heads=8,
-                    window_size=8,
-                    shift_size=0,
-                ),
-                SwinTransformerBlock(
-                    dim=c2,
-                    input_resolution=img_size // 2,
-                    num_heads=8,
-                    window_size=8,
-                    shift_size=4,
-                ),
-            ]
+        self.enc_stage2 = nn.Sequential(
+            SwinTransformerBlock(
+                dim=c2,
+                input_resolution=img_size // 2,
+                num_heads=8,
+                window_size=8,
+                shift_size=0,
+            ),
+            SwinTransformerBlock(
+                dim=c2,
+                input_resolution=img_size // 2,
+                num_heads=8,
+                window_size=8,
+                shift_size=4,
+            ),
         )
         self.down2 = PatchMerging(dim=c2)  # 64 -> 32
 
         # Stage 3: [32x32], dim=512, heads=16
-        self.enc_stage3 = nn.ModuleList(
-            [
-                SwinTransformerBlock(
-                    dim=c3,
-                    input_resolution=img_size // 4,
-                    num_heads=16,
-                    window_size=8,
-                    shift_size=0,
-                ),
-                SwinTransformerBlock(
-                    dim=c3,
-                    input_resolution=img_size // 4,
-                    num_heads=16,
-                    window_size=8,
-                    shift_size=4,
-                ),
-            ]
+        self.enc_stage3 = nn.Sequential(
+            SwinTransformerBlock(
+                dim=c3,
+                input_resolution=img_size // 4,
+                num_heads=16,
+                window_size=8,
+                shift_size=0,
+            ),
+            SwinTransformerBlock(
+                dim=c3,
+                input_resolution=img_size // 4,
+                num_heads=16,
+                window_size=8,
+                shift_size=4,
+            ),
         )
         self.down3 = PatchMerging(dim=c3)  # 32 -> 16
 
         # Stage 4: [16x16], dim=1024, heads=32
-        self.enc_stage4 = nn.ModuleList(
-            [
-                SwinTransformerBlock(
-                    dim=c4,
-                    input_resolution=img_size // 8,
-                    num_heads=32,
-                    window_size=8,
-                    shift_size=0,
-                ),
-                SwinTransformerBlock(
-                    dim=c4,
-                    input_resolution=img_size // 8,
-                    num_heads=32,
-                    window_size=8,
-                    shift_size=4,
-                ),
-            ]
+        self.enc_stage4 = nn.Sequential(
+            SwinTransformerBlock(
+                dim=c4,
+                input_resolution=img_size // 8,
+                num_heads=32,
+                window_size=8,
+                shift_size=0,
+            ),
+            SwinTransformerBlock(
+                dim=c4,
+                input_resolution=img_size // 8,
+                num_heads=32,
+                window_size=8,
+                shift_size=4,
+            ),
         )
         self.down4 = PatchMerging(dim=c4)  # 16 -> 8
 
         # ==================== 【BOTTLENECK 最底层】 ====================
         # Bottleneck: [8x8], dim=2048, heads=64
         # 提示：在这里虽然写了 shift_size=4，但在初始化阶段会被核心修复3自动重置为0，完美确保全局无阻碍交互。
-        self.bottleneck = nn.ModuleList(
-            [
-                SwinTransformerBlock(
-                    dim=c5,
-                    input_resolution=img_size // 16,
-                    num_heads=64,
-                    window_size=8,
-                    shift_size=0,
-                ),
-                SwinTransformerBlock(
-                    dim=c5,
-                    input_resolution=img_size // 16,
-                    num_heads=64,
-                    window_size=8,
-                    shift_size=4,
-                ),
-            ]
+        self.bottleneck = nn.Sequential(
+            SwinTransformerBlock(
+                dim=c5,
+                input_resolution=img_size // 16,
+                num_heads=64,
+                window_size=8,
+                shift_size=0,
+            ),
+            SwinTransformerBlock(
+                dim=c5,
+                input_resolution=img_size // 16,
+                num_heads=64,
+                window_size=8,
+                shift_size=4,
+            ),
         )
 
         # ==================== 【DECODER 阶段】 ====================
         # Stage 4 回弹: 8x8 -> 16x16
         self.up4 = PatchExpanding(input_dim=c5)  # 2048 -> 1024
         self.fusion4 = nn.Linear(c4 * 2, c4)
-        self.dec_stage4 = nn.ModuleList(
-            [
-                SwinTransformerBlock(
-                    dim=c4,
-                    input_resolution=img_size // 8,
-                    num_heads=32,
-                    window_size=8,
-                    shift_size=0,
-                ),
-                SwinTransformerBlock(
-                    dim=c4,
-                    input_resolution=img_size // 8,
-                    num_heads=32,
-                    window_size=8,
-                    shift_size=4,
-                ),
-            ]
+        self.dec_stage4 = nn.Sequential(
+            SwinTransformerBlock(
+                dim=c4,
+                input_resolution=img_size // 8,
+                num_heads=32,
+                window_size=8,
+                shift_size=0,
+            ),
+            SwinTransformerBlock(
+                dim=c4,
+                input_resolution=img_size // 8,
+                num_heads=32,
+                window_size=8,
+                shift_size=4,
+            ),
         )
 
         # Stage 3 回弹: 16x16 -> 32x32
         self.up3 = PatchExpanding(input_dim=c4)  # 1024 -> 512
         self.fusion3 = nn.Linear(c3 * 2, c3)
-        self.dec_stage3 = nn.ModuleList(
-            [
-                SwinTransformerBlock(
-                    dim=c3,
-                    input_resolution=img_size // 4,
-                    num_heads=16,
-                    window_size=8,
-                    shift_size=0,
-                ),
-                SwinTransformerBlock(
-                    dim=c3,
-                    input_resolution=img_size // 4,
-                    num_heads=16,
-                    window_size=8,
-                    shift_size=4,
-                ),
-            ]
+        self.dec_stage3 = nn.Sequential(
+            SwinTransformerBlock(
+                dim=c3,
+                input_resolution=img_size // 4,
+                num_heads=16,
+                window_size=8,
+                shift_size=0,
+            ),
+            SwinTransformerBlock(
+                dim=c3,
+                input_resolution=img_size // 4,
+                num_heads=16,
+                window_size=8,
+                shift_size=4,
+            ),
         )
 
         # Stage 2 回弹: 32x32 -> 64x64
         self.up2 = PatchExpanding(input_dim=c3)  # 512 -> 256
         self.fusion2 = nn.Linear(c2 * 2, c2)
-        self.dec_stage2 = nn.ModuleList(
-            [
-                SwinTransformerBlock(
-                    dim=c2,
-                    input_resolution=img_size // 2,
-                    num_heads=8,
-                    window_size=8,
-                    shift_size=0,
-                ),
-                SwinTransformerBlock(
-                    dim=c2,
-                    input_resolution=img_size // 2,
-                    num_heads=8,
-                    window_size=8,
-                    shift_size=4,
-                ),
-            ]
+        self.dec_stage2 = nn.Sequential(
+            SwinTransformerBlock(
+                dim=c2,
+                input_resolution=img_size // 2,
+                num_heads=8,
+                window_size=8,
+                shift_size=0,
+            ),
+            SwinTransformerBlock(
+                dim=c2,
+                input_resolution=img_size // 2,
+                num_heads=8,
+                window_size=8,
+                shift_size=4,
+            ),
         )
 
         # Stage 1 回弹: 64x64 -> 128x128
         self.up1 = PatchExpanding(input_dim=c2)  # 256 -> 128
         self.fusion1 = nn.Linear(c1 * 2, c1)
-        self.dec_stage1 = nn.ModuleList(
-            [
-                SwinTransformerBlock(
-                    dim=c1,
-                    input_resolution=img_size,
-                    num_heads=4,
-                    window_size=8,
-                    shift_size=0,
-                ),
-                SwinTransformerBlock(
-                    dim=c1,
-                    input_resolution=img_size,
-                    num_heads=4,
-                    window_size=8,
-                    shift_size=4,
-                ),
-            ]
+        self.dec_stage1 = nn.Sequential(
+            SwinTransformerBlock(
+                dim=c1,
+                input_resolution=img_size,
+                num_heads=4,
+                window_size=8,
+                shift_size=0,
+            ),
+            SwinTransformerBlock(
+                dim=c1,
+                input_resolution=img_size,
+                num_heads=4,
+                window_size=8,
+                shift_size=4,
+            ),
         )
 
         self.final_norm = nn.LayerNorm(c1)
-
-    def _forward_blocks(self, blocks, x):
-        """辅助函数：带有 checkpoint 检查的 Block 遍历执行"""
-        for block in blocks:
-            if self.use_checkpoint and self.training:
-                x = checkpoint(block, x, use_reentrant=False)
-            else:
-                x = block(x)
-        return x
 
     def forward(self, x):
         # x: [B, 32, 128, 128]
@@ -475,46 +444,46 @@ class SwinEncoder(nn.Module):
         x = x + self.absolute_pos_embed
 
         # --------- ENCODER 递进与跳跃缓存 ---------
-        x = self._forward_blocks(self.enc_stage1, x)
+        x = self.enc_stage1(x)
         skip1 = x  # 缓存 Stage 1 [B, 128, 128, 128]
 
         x = self.down1(x)  # -> [B, 64, 64, 256]
-        x = self._forward_blocks(self.enc_stage2, x)
+        x = self.enc_stage2(x)
         skip2 = x  # 缓存 Stage 2 [B, 64, 64, 256]
 
         x = self.down2(x)  # -> [B, 32, 32, 512]
-        x = self._forward_blocks(self.enc_stage3, x)
+        x = self.enc_stage3(x)
         skip3 = x  # 缓存 Stage 3 [B, 32, 32, 512]
 
         x = self.down3(
             x
         )  # 🛠️ 细节小瑕疵修正：注释修正为真实的通道数 -> [B, 16, 16, 1024]
-        x = self._forward_blocks(self.enc_stage4, x)
+        x = self.enc_stage4(x)
         skip4 = x  # 缓存 Stage 4 [B, 16, 16, 1024]
 
         x = self.down4(x)  # -> [B, 8, 8, 2048]
 
         # --------- BOTTLENECK 最底层语义凝练 ---------
-        x = self._forward_blocks(self.bottleneck, x)  # [B, 8, 8, 2048]
+        x = self.bottleneck(x)  # [B, 8, 8, 2048]
 
         # --------- DECODER 层层回弹与 U 型融合 ---------
         # 融合 Stage 4
         x = self.up4(x)  # 上采样 -> [B, 16, 16, 1024]
         x = torch.cat([x, skip4], dim=-1)  # type: ignore # 拼接 -> [B, 16, 16, 2048]
         x = self.fusion4(x)  # 降维 -> [B, 16, 16, 1024]
-        x = self._forward_blocks(self.dec_stage4, x)
+        x = self.dec_stage4(x)
 
         # 融合 Stage 3
         x = self.up3(x)  # 上采样 -> [B, 32, 32, 512]
         x = torch.cat([x, skip3], dim=-1)  # type: ignore # 拼接 -> [B, 32, 32, 1024]
         x = self.fusion3(x)  # 降维 -> [B, 32, 32, 512]
-        x = self._forward_blocks(self.dec_stage3, x)
+        x = self.dec_stage3(x)
 
         # 融合 Stage 2
         x = self.up2(x)  # 上采样 -> [B, 64, 64, 256]
         x = torch.cat([x, skip2], dim=-1)  # type: ignore  # 拼接 -> [B, 64, 64, 512]
         x = self.fusion2(x)  # 降维 -> [B, 64, 64, 256]
-        x = self._forward_blocks(self.dec_stage2, x)
+        x = self.dec_stage2(x)
 
         # 融合 Stage 1
         x = self.up1(x)  # 上采样 -> [B, 128, 128, 128]
@@ -522,7 +491,7 @@ class SwinEncoder(nn.Module):
         x = self.fusion1(x)  # 降维 -> [B, 128, 128, 128]
 
         # 🛠️ 已修复：删除了多余的 "self.dec_stage1 =" 赋值
-        x = self._forward_blocks(self.dec_stage1, x)
+        x = self.dec_stage1(x)
 
         # --------- 最终输出还原 ---------
         x = self.final_norm(x)

@@ -156,14 +156,14 @@ def create_transformer_model(
         model_params.dropout,
     )
 
-    # conv_encoder = SwinEncoder(
-    #     model_params.d_model, model_params.d_model, dataset_params.input_size
-    # )
-
-    conv_encoder = CustomConvEncoder(
-        model_params.d_model,
-        model_params.d_model,
+    conv_encoder = SwinEncoder(
+        model_params.d_model, model_params.d_model, dataset_params.input_size
     )
+
+    # conv_encoder = CustomConvEncoder(
+    #     model_params.d_model,
+    #     model_params.d_model,
+    # )
 
     seq_decoder = TransformerDecoder(
         model_params.d_model,
@@ -289,32 +289,32 @@ def create_env(
         weight_decay=env_params.weight_decay,
     )
     # 先初始化余弦
-    # cosine_scheduler = CosineAnnealingLR(
-    #     optimizer,
-    #     T_max=(env_params.epochs - env_params.warmup_epochs),
-    #     eta_min=1e-6,
-    # )
-
-    # # 后初始化 LinearLR
-    # warmup_scheduler = LinearLR(
-    #     optimizer,
-    #     start_factor=0.1,
-    #     end_factor=1.0,
-    #     total_iters=env_params.warmup_epochs,
-    # )
-    # scheduler = SequentialLR(
-    #     optimizer,
-    #     schedulers=[warmup_scheduler, cosine_scheduler],
-    #     milestones=[env_params.warmup_epochs],
-    # )
-    lr_lambda = get_warmup_exponential_lambda(
-        warmup_epochs=env_params.warmup_epochs,
-        start_factor=0.1,
-        eta_min=1e-7,
-        base_lr=env_params.lr,
-        gamma=0.90,
+    cosine_scheduler = CosineAnnealingLR(
+        optimizer,
+        T_max=(env_params.epochs - env_params.warmup_epochs),
+        eta_min=1e-6,
     )
-    scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
+
+    # 后初始化 LinearLR
+    warmup_scheduler = LinearLR(
+        optimizer,
+        start_factor=0.1,
+        end_factor=1.0,
+        total_iters=env_params.warmup_epochs,
+    )
+    scheduler = SequentialLR(
+        optimizer,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[env_params.warmup_epochs],
+    )
+    # lr_lambda = get_warmup_exponential_lambda(
+    #     warmup_epochs=env_params.warmup_epochs,
+    #     start_factor=0.1,
+    #     eta_min=1e-7,
+    #     base_lr=env_params.lr,
+    #     gamma=0.90,
+    # )
+    # scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
 
     evaluator = SegmentationEvaluator(light_params.dataset_params.num_classes, True)
     app.spawn(
