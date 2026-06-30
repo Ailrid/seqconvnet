@@ -9,7 +9,7 @@ import time
 import os
 from torch import optim
 from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
+from torch.optim.lr_scheduler import LambdaLR, LinearLR, CosineAnnealingLR, SequentialLR
 from virid.core import system, ViridApp, MessageWriter
 
 from seqconvnet.core import (
@@ -49,7 +49,7 @@ from ..components import (
     TrainingState,
     LightParameters,
 )
-from ..util import create_logger, save_light_params
+from ..util import create_logger, save_light_params, get_warmup_exponential_lambda
 
 
 @system(message_type=CreateLoggerAndCheckpointMessage)
@@ -140,14 +140,14 @@ def create_transformer_model(
     model_params = light_params.model_params
     env_params = light_params.env_params
     dataset_params = light_params.dataset_params
-    embedding = HybridHeightEmbedding(
-        dataset_params.voxel_params.max_z,
-        model_params.d_model,
-    )
-    # embedding = StandardHeightEmbedding(
+    # embedding = HybridHeightEmbedding(
     #     dataset_params.voxel_params.max_z,
     #     model_params.d_model,
     # )
+    embedding = StandardHeightEmbedding(
+        dataset_params.voxel_params.max_z,
+        model_params.d_model,
+    )
     # 组装网络
     seq_encoder = TransformerEncoder(
         model_params.d_model,
@@ -156,14 +156,14 @@ def create_transformer_model(
         model_params.dropout,
     )
 
-    conv_encoder = SwinEncoder(
-        model_params.d_model, model_params.d_model, dataset_params.input_size
-    )
-
-    # conv_encoder = CustomConvEncoder(
-    #     model_params.d_model,
-    #     model_params.d_model,
+    # conv_encoder = SwinEncoder(
+    #     model_params.d_model, model_params.d_model, dataset_params.input_size
     # )
+
+    conv_encoder = CustomConvEncoder(
+        model_params.d_model,
+        model_params.d_model,
+    )
 
     seq_decoder = TransformerDecoder(
         model_params.d_model,
@@ -228,12 +228,13 @@ def create_rnn_model(
         model_params.dropout,
     )
 
-    conv_encoder = SwinEncoder(
-        model_params.d_model, model_params.d_model, dataset_params.input_size
-    )
+    # conv_encoder = SwinEncoder(
+    #     2 * model_params.d_model, 2 * model_params.d_model, dataset_params.input_size
+    # )
+    conv_encoder = CustomConvEncoder(2 * model_params.d_model, 2 * model_params.d_model)
 
     seq_decoder = RnnDecoder(
-        2 * model_params.d_model,
+        model_params.d_model,
         model_params.d_model,
         model_params.num_layers,
         model_params.dropout,
@@ -256,7 +257,8 @@ def create_rnn_model(
     loss = SoftDiceAndFocalLoss(
         dataset_params.num_classes,
         dataset_params.classes_weights,
-    )
+    ).to(env_params.device)
+
     app.spawn(
         ModelConfig(
             model=model,
@@ -286,23 +288,33 @@ def create_env(
         lr=env_params.lr,
         weight_decay=env_params.weight_decay,
     )
-    # Warmup 阶段
-    warmup_scheduler = LinearLR(
-        optimizer,
+    # 先初始化余弦
+    # cosine_scheduler = CosineAnnealingLR(
+    #     optimizer,
+    #     T_max=(env_params.epochs - env_params.warmup_epochs),
+    #     eta_min=1e-6,
+    # )
+
+    # # 后初始化 LinearLR
+    # warmup_scheduler = LinearLR(
+    #     optimizer,
+    #     start_factor=0.1,
+    #     end_factor=1.0,
+    #     total_iters=env_params.warmup_epochs,
+    # )
+    # scheduler = SequentialLR(
+    #     optimizer,
+    #     schedulers=[warmup_scheduler, cosine_scheduler],
+    #     milestones=[env_params.warmup_epochs],
+    # )
+    lr_lambda = get_warmup_exponential_lambda(
+        warmup_epochs=env_params.warmup_epochs,
         start_factor=0.1,
-        end_factor=1.0,
-        total_iters=env_params.warmup_epochs,
-    )
-    cosine_scheduler = CosineAnnealingLR(
-        optimizer,
-        T_max=(env_params.epochs - env_params.warmup_epochs),
         eta_min=1e-7,
+        base_lr=env_params.lr,
+        gamma=0.90,
     )
-    scheduler = SequentialLR(
-        optimizer,
-        schedulers=[warmup_scheduler, cosine_scheduler],
-        milestones=[env_params.warmup_epochs],
-    )
+    scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
 
     evaluator = SegmentationEvaluator(light_params.dataset_params.num_classes, True)
     app.spawn(

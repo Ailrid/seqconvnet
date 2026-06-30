@@ -26,6 +26,8 @@ class TrainingState:
     best_hist_matrix: list[list[int]] = field(default_factory=lambda: list())
     #  train_loss
     train_loss: list[float] = field(default_factory=lambda: list())
+    train_miou: list[float] = field(default_factory=lambda: list())
+    test_miou: list[float] = field(default_factory=lambda: list())
     # 日志路径
     log_folder: str = ""
     # 模型保存路径

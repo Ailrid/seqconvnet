@@ -4,10 +4,14 @@ Licensed under the Apache License, Version 2.0.
 Project: seqconvnet
 """
 
+from dataclasses import asdict
+import json
+import os
+
 import torch
 from ..interface import Network
 from .rnn import RnnEncoder, RnnDecoder, RnnClassifier
-from ...structs import Tensor4D
+from ...structs import SegmentationMetrics, Tensor4D
 from ..embedding import mat2seq
 
 
@@ -93,7 +97,7 @@ class RnnShell(Network):
         return state_mat + self.conv_encoder(state_mat)
 
     @torch.no_grad()
-    def refer(self, input_mat: Tensor4D, valid_len_mat: Tensor4D):
+    def refer(self, input_mat: Tensor4D):
         """
         配合外置依赖注入的自回归闭环推理
         """
@@ -147,6 +151,116 @@ class RnnShell(Network):
                 batch_size, num_rows, num_cols, 1
             ).permute(0, 3, 1, 2)
 
-            output[:, i : i + 1, :, :] = current_layer_label
+            # 减回去
+            output[:, i : i + 1, :, :] = current_layer_label - 1
 
-        return output * valid_len_mat
+        return output
+
+    def save_checkpoint(self, path: str, best_metrics: SegmentationMetrics):
+        """
+        将 5 个独立的子模块权重分别保存到指定文件夹下。
+        """
+        os.makedirs(path, exist_ok=True)
+
+        # 组装待保存的 5 个核心子组件字典
+        components = {
+            "embedding_encoder": self.embedding_encoder,
+            "embedding_decoder": self.embedding_decoder,
+            "seq_encoder": self.seq_encoder,
+            "conv_encoder": self.conv_encoder,
+            "seq_decoder": self.seq_decoder,
+            "classifier": self.classifier,
+        }
+
+        for name, sub_module in components.items():
+            file_path = os.path.join(path, f"{name}.pth")
+            state_dict = sub_module.state_dict()
+            torch.save(state_dict, file_path)
+
+            # 核验文件是否真正成功写入且大小正常
+            if not (os.path.exists(file_path) and os.path.getsize(file_path) > 0):
+                raise IOError(
+                    f"The weight file of submodule [{name}] failed to save or the file is empty!"
+                )
+
+        # 保存检查点精度
+        metrics_path = os.path.join(path, "best_metrics.json")
+        with open(metrics_path, "w", encoding="utf-8") as f:
+            f.write(json.dumps(asdict(best_metrics), indent=4, ensure_ascii=False))
+
+    def load_checkpoint(self, path: str):
+        """
+        从指定文件夹中分别读取 5 个子模块的权重，并在真正加载前二次几何核验
+        """
+        components = {
+            "embedding_encoder": self.embedding_encoder,
+            "embedding_decoder": self.embedding_decoder,
+            "seq_encoder": self.seq_encoder,
+            "conv_encoder": self.conv_encoder,
+            "seq_decoder": self.seq_decoder,
+            "classifier": self.classifier,
+        }
+
+        # 基础物理文件完整性核验
+        for name in components.keys():
+            file_path = os.path.join(path, f"{name}.pth")
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(
+                    f"\nWeight loading intercepted! Missing key sub component weight file:\n"
+                    f"   ➔ Expected file path: {file_path}\n"
+                    f"   Please check if the experimental folder or model architecture definition matches."
+                )
+
+        # Keys 结构与 Shape 尺寸
+        for name, sub_module in components.items():
+            file_path = os.path.join(path, f"{name}.pth")
+
+            # 先加载到 CPU
+            loaded_state_dict = torch.load(file_path, map_location="cpu")
+            current_state_dict = sub_module.state_dict()
+
+            loaded_keys = set(loaded_state_dict.keys())
+            current_keys = set(current_state_dict.keys())
+
+            # 计算差异键
+            missing_keys = current_keys - loaded_keys
+            unexpected_keys = loaded_keys - current_keys
+            shape_mismatches = []
+
+            # 核验交集 Key 的张量 Shape 是否对齐
+            for key in current_keys & loaded_keys:
+                if current_state_dict[key].shape != loaded_state_dict[key].shape:
+                    shape_mismatches.append(
+                        f"      ➔ Attribute '{key}':\n"
+                        f"          Runtime model dimension: {list(current_state_dict[key].shape)}\n"
+                        f"          File save weight dimension: {list(loaded_state_dict[key].shape)}"
+                    )
+
+            # 如果该组件存在任何不一致，立刻抛出详细的崩溃报告，绝不带病运行
+            if missing_keys or unexpected_keys or shape_mismatches:
+                error_title = (
+                    f"\nWeight Dimension Mismatch inside sub-component [{name}]!"
+                )
+                error_details = []
+
+                if missing_keys:
+                    error_details.append(
+                        f"   The key that exists in the current model but is missing in the weight file is:\n      {list(missing_keys)}"
+                    )
+                if unexpected_keys:
+                    error_details.append(
+                        f"   The weight file contains redundant keys in the current model:\n      {list(unexpected_keys)}"
+                    )
+                if shape_mismatches:
+                    error_details.append(
+                        f"   Geometric Dimension Conflict (modified d_model/head/num_classes):\n"
+                        + "\n".join(shape_mismatches)
+                    )
+
+                raise ValueError(
+                    f"{error_title}\n"
+                    + "\n\n".join(error_details)
+                    + f"\n\nPlease clean up conflicting historical experiment folders or correct the network hyperparameter configuration in 'train. py'."
+                )
+
+            sub_module.load_state_dict(loaded_state_dict)

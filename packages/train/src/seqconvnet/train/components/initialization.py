@@ -54,5 +54,5 @@ class EnvConfig:
     warmup_epochs: int
     evaluator: SegmentationEvaluator
     optimizer: torch.optim.Optimizer
-    scheduler: torch.optim.lr_scheduler.SequentialLR
+    scheduler: torch.optim.lr_scheduler.SequentialLR | torch.optim.lr_scheduler.LambdaLR
     device: str

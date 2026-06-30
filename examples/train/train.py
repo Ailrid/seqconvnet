@@ -16,7 +16,7 @@ from seqconvnet.train import (
 )
 from seqconvnet.core import VoxelParameters
 
-virid = create_virid(max_depth=1000, enable_logging=False).use(StdPlugin, None)
+virid = create_virid(max_depth=10000, enable_logging=False).use(StdPlugin, None)
 
 bind_components(virid)
 register_systems(virid)
@@ -38,6 +38,16 @@ TrainingLightingMessage.send(
             8.7707,
             1.4449,
         ],
+        classes_names=[
+            "background",
+            "vegetation",
+            "car",
+            "truck",
+            "powerline",
+            "fence",
+            "pole",
+            "building",
+        ],
         batch_size=1,  # 建议设置为1
         num_workers=2,  # 数据加载线程
         input_size=128,  # 输入给网络的大小，单位是像素，每块的长和宽就是 input_size * xy_resolution
@@ -54,8 +64,8 @@ TrainingLightingMessage.send(
     ),
     model_params=ModelParameters(
         checkpoint_folder=None,
-        model_type="transformer",
-        d_model=32,  # transformer 的 d_model 或者 rnn 的 hidden_size
+        model_type="rnn",
+        d_model=16,  # transformer 的 d_model 或者 rnn 的 hidden_size
         nhead=2,  # transformer 的 nhead
         num_layers=2,  # transformer 的 num_layers
         dropout=0.1,

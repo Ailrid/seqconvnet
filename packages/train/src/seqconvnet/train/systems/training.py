@@ -176,6 +176,7 @@ def one_epoch(
     scheduler = env_config.scheduler
 
     train_loss = training_state.train_loss
+    train_miou = training_state.train_miou
 
     MessageWriter.info(
         f"\n{Color.ORANGE}{Color.BOLD} ------------------------------- Train  -------------------------------- {Color.END}\n"
@@ -185,7 +186,6 @@ def one_epoch(
     with tqdm(
         dataset_config.train_loader,
         desc=f"Epoch {message.epoch}",
-        leave=False,
         total=len(cast(TrainLoader, dataset_config.train_loader.dataset))
         * dataset_config.num_workers,
     ) as pbar:
@@ -206,19 +206,19 @@ def one_epoch(
             optimizer.step()
 
             pred_label = pred_mat.argmax(dim=1)
-            evaluator.update(pred_label + 1, label_mat)
-            metrics = evaluator.compute_metrics()
+            evaluator.update(pred_label, label_mat)
+
             pbar.set_description(
-                f"Loss: {np.mean(l_statistic):.5f}, mIOU: {metrics.mIoU:.5f}, Lr: {scheduler.get_last_lr()[0]:.6f}"
+                f"Loss: {np.mean(l_statistic):.5f},  Lr: {scheduler.get_last_lr()[0]:.6f}"
             )
 
     scheduler.step()
-    _, _, report_str = evaluator.print_metrics()
+    _, current_metrics, report_str = evaluator.print_metrics()
     MessageWriter.info(report_str)
     train_loss.append(np.mean(l_statistic).item())
-
-    # 最后10个 epoch 关闭数据增强
-    if env_config.epochs - message.epoch <= 10:
+    train_miou.append(current_metrics.mIoU)
+    # 最后 20个 epoch 关闭数据增强
+    if env_config.epochs - message.epoch <= 20:
         cast(TrainLoader, dataset_config.train_loader.dataset).toggle_enhance()
 
 
@@ -233,8 +233,12 @@ def eval_net(
     device = env_config.device
     evaluator = env_config.evaluator
     evaluator.reset()
+
     model = model_config.model
     model.eval()
+
+    test_miou = training_state.test_miou
+
     MessageWriter.info(
         f"\n{Color.BLUE}{Color.BOLD} ------------------------------- Test -------------------------------- {Color.END}\n"
     )
@@ -242,7 +246,6 @@ def eval_net(
         with tqdm(
             dataset_config.test_loader,
             desc=f"Eval {message.epoch}",
-            leave=False,
             total=len(cast(TrainLoader, dataset_config.test_loader.dataset)),
         ) as pbar:
             for input_mat, label_mat in pbar:
@@ -250,26 +253,29 @@ def eval_net(
                 input_mat = input_mat.to(device)
                 label_mat = label_mat.to(device)
 
-                # [B, num_classes, S, H, W]
+                # [B, S, H, W]
                 pred_label = refer_mat(
                     input_mat,
                     model,
                     dataset_config.input_size,
                 )
                 evaluator.update(pred_label, label_mat)
+                metrics = evaluator.compute_metrics()
+                pbar.set_description(f"Eval mIOU: {metrics.mIoU:.5f}")
 
         hist_matrix, current_metrics, report_str = evaluator.print_metrics()
         training_state.hist_matrix = hist_matrix
         training_state.current_metrics = current_metrics
-
+        test_miou.append(current_metrics.mIoU)
         MessageWriter.info(report_str)
 
 
 @system(message_type=PlotStateMessage)
 def plot_state(
     training_state: TrainingState,
+    light_params: LightParameters,
 ) -> None:
-    plot_training_state(training_state)
+    plot_training_state(training_state, light_params.dataset_params.classes_names)
 
 
 @system(message_type=StartTrainingMessage)

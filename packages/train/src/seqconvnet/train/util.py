@@ -210,7 +210,6 @@ def plot_training_state(
     state: TrainingState,
     class_names: Optional[list[str]] = None,
 ):
-
     try:
         plt.style.use("seaborn-v0_8-whitegrid")
     except:
@@ -218,10 +217,14 @@ def plot_training_state(
 
     num_classes = len(state.current_metrics.IoU)
     if class_names is None:
-        class_names = [f"Class_{i}" for i in range(num_classes)]
+        # 保持类名从 Class_1 开始
+        class_names = [f"Class_{i+1}" for i in range(num_classes)]
 
-    # 创建 2x2 画布
-    fig, axes = plt.subplots(2, 2, figsize=(16, 13), dpi=100)
+    # 【升级】使用 GridSpec 创建 3行2列 的高级混合看板，高度调整为 18 以容纳更多图表
+    fig = plt.figure(figsize=(16, 18), dpi=100)
+    gs = fig.add_gridspec(
+        3, 2, height_ratios=[1, 1, 1.2]
+    )  # 稍微给底部的混淆矩阵多一点空间
 
     # 顶部大标题，展示核心全局指标
     title_str = (
@@ -229,10 +232,10 @@ def plot_training_state(
         f"Current: mIoU={state.current_metrics.mIoU:.4f} | mPrecision={state.current_metrics.mPrecision:.4f} | mRecall={state.current_metrics.mRecall:.4f}\n"
         f"Best Hist: mIoU={state.best_metrics.mIoU:.4f} | mPrecision={state.best_metrics.mPrecision:.4f} | mRecall={state.best_metrics.mRecall:.4f}"
     )
-    fig.suptitle(title_str, fontsize=15, fontweight="bold", y=0.97, va="top")
+    fig.suptitle(title_str, fontsize=16, fontweight="bold", y=0.98, va="top")
 
-    # --- 左上：Current Epoch Batch Loss ---
-    ax_loss = axes[0, 0]
+    # --- 1. [左上]：Current Epoch Batch Loss ---
+    ax_loss = fig.add_subplot(gs[0, 0])
     losses = state.train_loss
     if isinstance(losses, list) and len(losses) > 0:
         ax_loss.plot(
@@ -243,7 +246,6 @@ def plot_training_state(
             linewidth=1.5,
             label="Batch Loss",
         )
-        # 如果 batch 太多，加一条平滑移动平均线
         if len(losses) > 10:
             window = max(2, len(losses) // 10)
             smooth_loss = np.convolve(losses, np.ones(window) / window, mode="valid")
@@ -255,11 +257,11 @@ def plot_training_state(
                 label=f"Moving Avg (w={window})",
             )
         ax_loss.set_title(
-            f"Current Epoch Loss Curve ({len(losses)} Steps)",
+            f"Epoch Loss Curve ({len(losses)} epochs)",
             fontsize=12,
             fontweight="bold",
         )
-        ax_loss.set_xlabel("Train Steps / Batches")
+        ax_loss.set_xlabel("Train Epochs")
         ax_loss.set_ylabel("Loss")
         ax_loss.legend()
     else:
@@ -267,8 +269,48 @@ def plot_training_state(
             0.5, 0.5, "No Loss Data Available", ha="center", va="center", fontsize=12
         )
 
-    # ---  右上：Per-Class IoU Comparison (Current vs Best) ---
-    ax_bar = axes[0, 1]
+    ax_miou = fig.add_subplot(gs[0, 1])
+    train_mious = state.train_miou
+    test_mious = state.test_miou
+
+    if isinstance(train_mious, list) and len(train_mious) > 0:
+        epochs_range = range(1, len(train_mious) + 1)
+        # 画训练集 mIoU 曲线
+        ax_miou.plot(
+            epochs_range,
+            train_mious,
+            color="#00A087",
+            marker="o",
+            markersize=4,
+            linewidth=2,
+            label="Train mIoU",
+        )
+        # 画测试集 mIoU 曲线（如果有的话）
+        if isinstance(test_mious, list) and len(test_mious) > 0:
+            # 防止两列表长度不一致报错，取对应的范围
+            ax_miou.plot(
+                range(1, len(test_mious) + 1),
+                test_mious,
+                color="#3C5488",
+                marker="s",
+                markersize=4,
+                linewidth=2,
+                label="Test mIoU",
+            )
+        ax_miou.set_title(
+            "mIoU History Curve (Over Epochs)", fontsize=12, fontweight="bold"
+        )
+        ax_miou.set_xlabel("Epochs")
+        ax_miou.set_ylabel("mIoU Score")
+        ax_miou.set_ylim(-0.02, 1.02)
+        ax_miou.legend(loc="lower right")
+    else:
+        ax_miou.text(
+            0.5, 0.5, "No mIoU History Data", ha="center", va="center", fontsize=12
+        )
+
+    # --- 3. [中间整行拉宽]：Per-Class IoU Comparison (Current vs Best) ---
+    ax_bar = fig.add_subplot(gs[1, :])  # gs[1, :] 表示占据第2行的整行
     cur_iou = state.current_metrics.IoU
     best_iou = state.best_metrics.IoU
 
@@ -295,13 +337,14 @@ def plot_training_state(
 
     ax_bar.set_title("IoU Per Class: Current vs Best", fontsize=12, fontweight="bold")
     ax_bar.set_xticks(x)
-    ax_bar.set_xticklabels(class_names, rotation=30, ha="right")
+    # 因为拉宽了，类名的排布会非常好看，不易重叠
+    ax_bar.set_xticklabels(class_names, rotation=15, ha="right")
     ax_bar.set_ylabel("IoU Score")
     ax_bar.set_ylim(-0.02, 1.02)
     ax_bar.legend(loc="upper right")
 
-    # --- 左下：Current Confusion Matrix ---
-    ax_hm_cur = axes[1, 0]
+    # --- 4. [左下]：Current Confusion Matrix ---
+    ax_hm_cur = fig.add_subplot(gs[2, 0])
     hist = np.array(state.hist_matrix)
     if hist.size > 0 and hist.sum() > 0:
         norm_hist = hist / (hist.sum(axis=1, keepdims=True) + 1e-6)
@@ -316,7 +359,7 @@ def plot_training_state(
             cbar=False,
         )
         ax_hm_cur.set_title(
-            f"Current Epoch {state.current_epoch} Confusion Matrix (Recall)",
+            f"Epoch {state.current_epoch} Confusion Matrix (Recall)",
             fontsize=12,
             fontweight="bold",
         )
@@ -327,8 +370,8 @@ def plot_training_state(
             0.5, 0.5, "No Current Matrix Data", ha="center", va="center", fontsize=12
         )
 
-    # --- 右下：Best Confusion Matrix ---
-    ax_hm_best = axes[1, 1]
+    # --- 5. [右下]：Best Confusion Matrix ---
+    ax_hm_best = fig.add_subplot(gs[2, 1])
     best_hist = np.array(state.best_hist_matrix)
     if best_hist.size > 0 and best_hist.sum() > 0:
         norm_best_hist = best_hist / (best_hist.sum(axis=1, keepdims=True) + 1e-6)
@@ -352,8 +395,35 @@ def plot_training_state(
             0.5, 0.5, "No Best Matrix Data", ha="center", va="center", fontsize=12
         )
 
-    # 调整布局，为大标题留出顶部空间 (rect 参数)
+    # 调整布局，适配 3 行的高度和顶部大标题
     plt.tight_layout()
-    fig.subplots_adjust(top=0.88)
+    fig.subplots_adjust(top=0.92)
+
     save_path = os.path.join(state.log_folder, "training_state.png")
     plt.savefig(save_path, bbox_inches="tight")
+    plt.close()
+
+
+def get_warmup_exponential_lambda(warmup_epochs, start_factor, eta_min, base_lr, gamma):
+    """
+    Args:
+        warmup_epochs: 预热的轮数
+        start_factor: 预热起步的学习率缩放倍数
+        eta_min: 保底的最小学习率（防止跌到0）
+        base_lr: 优化器的初始学习率
+        gamma: 指数衰减率（通常在 0.90 到 0.99 之间，越小下降越快）
+    """
+
+    def lr_lambda(epoch):
+        if epoch < warmup_epochs:
+            # Warmup 阶段：线性爬升
+            return start_factor + (1.0 - start_factor) * (epoch / warmup_epochs)
+        else:
+            # 负指数衰减阶段（带 eta_min 保底）
+            active_epochs = epoch - warmup_epochs
+            # 计算超出 eta_min 之上的那部分学习率如何随指数衰减
+            current_lr = eta_min + (base_lr - eta_min) * (gamma**active_epochs)
+            # 返回缩放系数
+            return current_lr / base_lr
+
+    return lr_lambda

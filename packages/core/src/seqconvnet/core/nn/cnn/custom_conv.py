@@ -149,8 +149,15 @@ class CustomConvEncoder(nn.Module):
         self,
         in_channel,
         out_channel,
-        features=[32, 64, 128, 256, 512],
     ):
+        features = [
+            2 * in_channel,
+            4 * in_channel,
+            8 * in_channel,
+            16 * in_channel,
+            32 * in_channel,
+        ]
+
         super(CustomConvEncoder, self).__init__()
         self.down1 = DownSample(features[0])
         self.down2 = DownSample(features[1])

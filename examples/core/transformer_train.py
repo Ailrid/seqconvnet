@@ -23,7 +23,7 @@ from seqconvnet.core import (
     SwinEncoder,
     VoxelParameters,
     SegmentationEvaluator,
-    SoftDiceAndCELoss,
+    SoftDiceAndFocalLoss,
 )
 from torch.utils.data import DataLoader
 from torch import optim
@@ -134,7 +134,7 @@ def benchmark():
         )
     )
     evaluator = SegmentationEvaluator(num_classes, True)
-    loss = SoftDiceAndCELoss(
+    loss = SoftDiceAndFocalLoss(
         num_classes,
         [  # 每个类的类别权重
             1.0000,

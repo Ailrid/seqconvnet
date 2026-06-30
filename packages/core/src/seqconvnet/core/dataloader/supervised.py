@@ -8,8 +8,10 @@ import os
 import torch
 from ..utils.preprocess import generate_data, chunk_area, read_las_file
 from ..utils.train import enhance, get_las_mat
-from ..structs import VoxelParameters, LabelMat
+from ..structs import VoxelParameters
 from torch.utils.data import IterableDataset
+import multiprocessing
+from ctypes import c_bool
 
 
 class PredLoader(IterableDataset):
@@ -61,10 +63,10 @@ class TrainLoader(IterableDataset):
         ]
         self.input_size = input_size
         self.voxel_params = voxel_params
-        self.enhance_key = True
+        self.enhance_key = multiprocessing.Value(c_bool, True)
 
-    def toggle_enhance(self):
-        self.enhance_key = not self.enhance_key
+    def toggle_enhance(self, key=False):
+        self.enhance_key = key
 
     def __len__(self):
         return len(self.file_list) * self.iter_times

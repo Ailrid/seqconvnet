@@ -32,63 +32,50 @@ class SoftDiceAndFocalLoss(nn.Module):
         )
 
     def forward(self, pred: torch.Tensor, label: torch.Tensor) -> torch.Tensor:
-        # pred 形状: [B, C, S, H, W] -> 对应的网络输出
-        # label 形状: [B, S, H, W]   -> 对应的原始标签 (1 ~ C, 0为背景)
+        # pred 形状: [B, C, S, H, W]
+        # label 形状: [B, S, H, W]
         C = self.num_classes
 
-        # 维度调整与扁平化：[B, C, ...] -> [B, ..., C] -> [N, C]
+        # 维度调整与扁平化
         pred_filtered = pred.movedim(1, -1).reshape(-1, C).contiguous()
-        # 标签扁平化: [B, ...] -> [N]
         target_filtered = label.reshape(-1).contiguous()
 
-        # 过滤背景
+        # 过滤背景 (padding=0)
         legal_mask = target_filtered != 0
         pred_filtered = pred_filtered[legal_mask]
         target_filtered = target_filtered[legal_mask]
 
-        # 防御性编程：如果当前整个 batch 全是背景，直接返回 0，并保持梯度链完整
         if target_filtered.size(0) == 0:
             return pred.sum() * 0
 
-        # 从 1 ~ C 映射到 0 ~ C-1，完美对齐 pred 维度的 0 ~ C-1
+        # 标签平移对齐 0 ~ C-1
         target_filtered = target_filtered - 1
 
+        # Focal Loss 计算 (完全正确，保留)
         log_pt = F.log_softmax(pred_filtered, dim=-1)
         log_pt = log_pt.gather(1, target_filtered.unsqueeze(1)).squeeze(1)
         pt = log_pt.exp()
 
-        # 根据每个像素的真实类别，取出对应的全局类别权重
         batch_weights = self.classes_weights[target_filtered]  # type: ignore
         focal_loss = -batch_weights * ((1 - pt) ** self.gamma) * log_pt
-
-        # 用当前 Batch 内所有有效像素的权重总和进行归一化
         focal_loss = focal_loss.sum() / (batch_weights.sum() + 1e-6)
 
-        # ================================================================= #
-        # 5. 动态类别加权 Multiclass Dice Loss
-        # ================================================================= #
+        # Multiclass Dice Loss 计算
         pred_prob = F.softmax(pred_filtered, dim=-1)
         target_one_hot = F.one_hot(
             target_filtered, num_classes=self.num_classes
         ).float()
 
-        # 计算每个类别在当前 batch 中的交集和并集，形状均为 [C]
+        # 计算每个类别在当前 batch 中的交集和并集 [C]
         intersection = torch.sum(pred_prob * target_one_hot, dim=0)
         cardinality = torch.sum(pred_prob + target_one_hot, dim=0)
 
-        # 每一类的标准 Dice Loss (加入 1.0 平滑项防止极值震荡)
+        # 每一类的标准 Dice Loss (靠 +1.0 完美防御 NaN，同时保留了对错判的惩罚)
         dice_loss_per_class = 1 - (2.0 * intersection + 1.0) / (cardinality + 1.0)
-
-        # 动态找出当前 Batch 中真正存在（至少出现过一次）的类别
-        # target_one_hot.sum(dim=0) 的形状是 [C]，代表每个类在当前 batch 里的像素总数
-        class_exist_mask = target_one_hot.sum(dim=0) > 0  # 得到一个 Bool 掩码 [C]
-
-        # 不存在的类别权重直接归零，存在的类别保留其全局配置权重
-        valid_weights = self.classes_weights * class_exist_mask  # type: ignore
-
-        # 只对存在的类别进行动态归一化求和
-        dice_loss = torch.sum(dice_loss_per_class * valid_weights) / (
-            valid_weights.sum() + 1e-6
+        
+        dice_loss = (
+            torch.sum(dice_loss_per_class * self.classes_weights)  # type: ignore
+            / self.classes_weights.sum()  # type: ignore
         )
 
         return self.alpha * focal_loss + self.beta * dice_loss

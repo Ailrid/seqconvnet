@@ -15,7 +15,7 @@ class StandardHeightEmbedding(nn.Module):
         # 长度为 max_z + 2 (包含 0~max_z 真实高度以及 Padding, EOS)
         # 当 max_z=128 时，长度为 130 (有效索引 0 到 129)
         max_len = max_z + 2
-
+        self.eos = max_z + 1
         P = torch.zeros((max_len, embed_size))
         X = torch.arange(max_len, dtype=torch.float32).reshape(-1, 1) / torch.pow(
             10000, torch.arange(0, embed_size, 2, dtype=torch.float32) / embed_size
@@ -35,7 +35,7 @@ class HybridHeightEmbedding(nn.Module):
     def __init__(self, max_z=128, embed_size=32):
         super().__init__()
         max_len = max_z + 2
-
+        self.eos = max_z + 1
         P = torch.zeros((max_len, embed_size))
         X = torch.arange(max_len, dtype=torch.float32).reshape(-1, 1) / torch.pow(
             10000, torch.arange(0, embed_size, 2, dtype=torch.float32) / embed_size

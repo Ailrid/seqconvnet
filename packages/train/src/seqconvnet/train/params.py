@@ -28,12 +28,13 @@ class DatasetParameters:
     # 从1开始
     num_classes: int = 8
     classes_weights: list[float] = field(default_factory=list)
+    classes_names: Optional[list[str]] = None
     batch_size: int = 1
     num_workers: int = 1
     iter_times: int = 1
     input_size: int = 128
     area_size: float = 128
-    voxel_params: VoxelParameters = None # type: ignore
+    voxel_params: VoxelParameters = None  # type: ignore
 
 
 @dataclass()

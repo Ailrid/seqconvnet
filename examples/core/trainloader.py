@@ -68,7 +68,7 @@ def test_train_loader():
     # 随机生成一次，保存结果
     loader_iter = iter(loader)
     input_mat, label_mat, teach_mat = next(loader_iter)
-    valid_len_mat =(input_mat!=0).to(torch.float32)
+    valid_len_mat = ~((input_mat == 0) | (input_mat == voxel_params.max_z + 1))
     restore_mat(
         input_mat[0],
         valid_len_mat[0],

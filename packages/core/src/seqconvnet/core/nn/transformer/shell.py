@@ -45,7 +45,7 @@ class TransformerShell(Network):
 
         # 扁平化输入
         seq_input = mat2seq(input_mat)  # [B * H * W, S]
-        seq_mask = seq_input == 0  # [B * H * W, S]
+        seq_mask = seq_input == 0
 
         seq_embedding = self.embedding(seq_input)
 
@@ -72,13 +72,12 @@ class TransformerShell(Network):
         logits = logits.view(batch_size, height, width, step_len, -1)
         out = logits.permute(0, 4, 3, 1, 2).contiguous()  # [B, num_classes, S, H, W]
         return out
-
+    
     @torch.no_grad()
     def refer(self, input_mat: Tensor4D):
-        valid_len_mat = input_mat > 0
         pred = self.forward(input_mat)
-        output = pred.argmax(dim=1) + 1
-        return output * valid_len_mat
+        output = pred.argmax(dim=1)
+        return output
 
     def save_checkpoint(self, path: str, best_metrics: SegmentationMetrics):
         """

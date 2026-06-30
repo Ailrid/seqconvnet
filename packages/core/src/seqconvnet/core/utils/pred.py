@@ -46,7 +46,7 @@ def get_label_from_mat(label_mat: Tensor3D, data_mat: DataMat, device: str) -> T
     return pred_point_label
 
 
-def yield_input_mat(input_mat: Tensor4D, valid_len_mat: Tensor4D, input_size: int):
+def yield_input_mat(input_mat: Tensor4D, input_size: int):
     """从数据矩阵里获得输入矩阵"""
     # 计算分块的总行列数
     num_rows = input_mat.shape[2]
@@ -70,12 +70,15 @@ def yield_input_mat(input_mat: Tensor4D, valid_len_mat: Tensor4D, input_size: in
                 row_end = num_rows
                 row_begin = num_rows - input_size
 
-            valid_input = valid_len_mat[
-                :,
-                :,
-                row_begin:row_end,
-                col_begin:col_end,
-            ]
+            valid_input = (
+                input_mat[
+                    :,
+                    :,
+                    row_begin:row_end,
+                    col_begin:col_end,
+                ]
+                != 0
+            )
 
             valid_len = torch.sum(valid_input, dim=1).max()
             if valid_len == 0:
@@ -100,7 +103,6 @@ def refer_mat(
     """推理一个不定大小的输入矩阵,输出和input_mat的形状相同"""
 
     batch_size, num_step, num_rows, num_cols = input_mat.shape
-    valid_len_mat = (input_mat != 0).to(torch.int32)
     if num_rows < input_size or num_cols < input_size:
         raise ValueError("The input size is too large.")
 
@@ -110,7 +112,7 @@ def refer_mat(
         device=input_mat.device,
     )
 
-    for area_input_mat, pos in yield_input_mat(input_mat, valid_len_mat, input_size):
+    for area_input_mat, pos in yield_input_mat(input_mat, input_size):
         pred = net.refer(area_input_mat)
         pred_mat[
             :,
