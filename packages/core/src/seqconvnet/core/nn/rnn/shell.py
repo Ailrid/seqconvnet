@@ -264,3 +264,109 @@ class RnnShell(Network):
                 )
 
             sub_module.load_state_dict(loaded_state_dict)
+
+
+class RnnChunkShell(RnnShell):
+
+    def __init__(
+        self,
+        embedding_encoder: torch.nn.Module,
+        embedding_decoder: torch.nn.Module,
+        seq_encoder: RnnEncoder,
+        conv_encoder: torch.nn.Module,
+        seq_decoder: RnnDecoder,
+        classifier: RnnClassifier,
+        chunk_size: int = 1024,  # 新增参数：控制每一批处理的序列数量，可根据显存动态调整（如 512, 1024, 2048）
+    ):
+        super().__init__(
+            embedding_encoder,
+            embedding_decoder,
+            seq_encoder,
+            conv_encoder,
+            seq_decoder,
+            classifier,
+        )
+
+        # 保存分批大小
+        self.chunk_size = chunk_size
+
+    def forward(self, input_mat: Tensor4D, teach_mat: Tensor4D):
+        """训练前向传播"""
+        batch_size, step_len, num_rows, num_cols = input_mat.shape
+        total_seqs = batch_size * num_rows * num_cols  # 你的 16384 个序列总数
+
+        # pooled_feat_mat -> [B, num_layers * hidden_size, H, W]
+        pooled_feat_mat = self.encode(input_mat)
+
+        # pooled_feat_seq -> [num_layers, B * H * W, hidden_size]
+        pooled_feat_seq = pooled_feat_mat.view(
+            batch_size, self.num_layers, self.hidden_size, num_rows, num_cols
+        )
+        pooled_feat_seq = pooled_feat_seq.permute(1, 0, 3, 4, 2).contiguous()
+        pooled_feat_seq = pooled_feat_seq.view(
+            self.num_layers, total_seqs, self.hidden_size
+        )
+
+        # 将标签矩阵打扁、查表、调整时序轴
+        teach_seq = mat2seq(teach_mat).to(torch.int64)  # [B * H * W, S]
+        embedding_teach = self.embedding_decoder(teach_seq).permute(
+            1, 0, 2
+        )  # [S, B * H * W, embed_size]
+
+        # 分批（Chunking）通过 Decoder 和 Classifier
+        logits_chunks = []
+        for i in range(0, total_seqs, self.chunk_size):
+            # 切片当前分批的特征与标签
+            emb_teach_chunk = embedding_teach[:, i : i + self.chunk_size, :]
+            feat_seq_chunk = pooled_feat_seq[:, i : i + self.chunk_size, :]
+
+            # output_chunk -> [S, chunk_size, hidden_size]
+            output_chunk = self.seq_decoder(emb_teach_chunk, feat_seq_chunk)
+
+            # logits_chunk -> [chunk_size, S, num_classes]
+            logits_chunk = self.classifier(output_chunk)
+            logits_chunks.append(logits_chunk)
+
+        # 在第 0 维（B * H * W 维度）将所有分批的 logits 拼接回来
+        logits = torch.cat(logits_chunks, dim=0)
+        # -----------------------------------------------------------------
+
+        # 用 logits 还原空间对齐
+        out_mat = logits.view(
+            batch_size, num_rows, num_cols, step_len, self.num_classes
+        )
+        out_mat = out_mat.permute(0, 4, 3, 1, 2).contiguous()
+        return out_mat  # [B, num_classes, S, H, W]
+
+    def encode(self, input_mat: Tensor4D):
+        """混合编码管道"""
+        batch_size, _, num_rows, num_cols = input_mat.shape
+        total_seqs = batch_size * num_rows * num_cols
+
+        seq_mat = mat2seq(input_mat).to(torch.int64)
+        # [S, B * H * W, embed_size]
+        embedding_seq = self.embedding_encoder(seq_mat).permute(1, 0, 2)
+
+        # 分批（Chunking）通过 Encoder
+        state_seq_chunks = []
+        for i in range(0, total_seqs, self.chunk_size):
+            emb_seq_chunk = embedding_seq[:, i : i + self.chunk_size, :]
+
+            # chunk_state -> [num_layers, chunk_size, hidden_size]
+            chunk_state = self.seq_encoder(emb_seq_chunk)
+            state_seq_chunks.append(chunk_state)
+
+        # 在第 1 维（B * H * W 维度）将所有分批的隐状态拼接回来
+        state_seq = torch.cat(state_seq_chunks, dim=1)
+        # -----------------------------------------------------------------
+
+        # 转换并组装空间 4D 特征
+        state_mat = state_seq.view(
+            self.num_layers, batch_size, num_rows, num_cols, self.hidden_size
+        )
+        state_mat = state_mat.permute(1, 0, 4, 2, 3).contiguous()
+        state_mat = state_mat.view(
+            batch_size, self.num_layers * self.hidden_size, num_rows, num_cols
+        )
+
+        return state_mat + self.conv_encoder(state_mat)

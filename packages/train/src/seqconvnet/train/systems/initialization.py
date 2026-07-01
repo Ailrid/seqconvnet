@@ -292,7 +292,7 @@ def create_env(
     cosine_scheduler = CosineAnnealingLR(
         optimizer,
         T_max=(env_params.epochs - env_params.warmup_epochs),
-        eta_min=1e-6,
+        eta_min=5e-7,
     )
 
     # 后初始化 LinearLR
