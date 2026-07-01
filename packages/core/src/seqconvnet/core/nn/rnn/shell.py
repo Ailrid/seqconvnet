@@ -293,50 +293,47 @@ class RnnChunkShell(RnnShell):
     def forward(self, input_mat: Tensor4D, teach_mat: Tensor4D):
         """训练前向传播"""
         batch_size, step_len, num_rows, num_cols = input_mat.shape
-        total_seqs = batch_size * num_rows * num_cols  # 你的 16384 个序列总数
+        total_seqs = batch_size * num_rows * num_cols
 
         # pooled_feat_mat -> [B, num_layers * hidden_size, H, W]
         pooled_feat_mat = self.encode(input_mat)
 
-        # pooled_feat_seq -> [num_layers, B * H * W, hidden_size]
-        pooled_feat_seq = pooled_feat_mat.view(
+        # 稳妥起见，这里也改为 reshape，防止上游网络输出不连续
+        pooled_feat_seq = pooled_feat_mat.reshape(
             batch_size, self.num_layers, self.hidden_size, num_rows, num_cols
         )
         pooled_feat_seq = pooled_feat_seq.permute(1, 0, 3, 4, 2).contiguous()
-        pooled_feat_seq = pooled_feat_seq.view(
+        pooled_feat_seq = pooled_feat_seq.reshape(
             self.num_layers, total_seqs, self.hidden_size
         )
 
         # 将标签矩阵打扁、查表、调整时序轴
-        teach_seq = mat2seq(teach_mat).to(torch.int64)  # [B * H * W, S]
-        embedding_teach = self.embedding_decoder(teach_seq).permute(
-            1, 0, 2
-        )  # [S, B * H * W, embed_size]
+        teach_seq = mat2seq(teach_mat).to(torch.int64)
+        embedding_teach = self.embedding_decoder(teach_seq).permute(1, 0, 2)
 
-        # 分批（Chunking）通过 Decoder 和 Classifier
+        # -----------------------------------------------------------------
+        # 分批通过 Decoder 和 Classifier
+        # -----------------------------------------------------------------
         logits_chunks = []
         for i in range(0, total_seqs, self.chunk_size):
-            # 切片当前分批的特征与标签
-            emb_teach_chunk = embedding_teach[:, i : i + self.chunk_size, :]
-            feat_seq_chunk = pooled_feat_seq[:, i : i + self.chunk_size, :]
+            emb_teach_chunk = embedding_teach[
+                :, i : i + self.chunk_size, :
+            ].contiguous()
+            feat_seq_chunk = pooled_feat_seq[:, i : i + self.chunk_size, :].contiguous()
 
-            # output_chunk -> [S, chunk_size, hidden_size]
             output_chunk = self.seq_decoder(emb_teach_chunk, feat_seq_chunk)
-
-            # logits_chunk -> [chunk_size, S, num_classes]
             logits_chunk = self.classifier(output_chunk)
             logits_chunks.append(logits_chunk)
 
-        # 在第 0 维（B * H * W 维度）将所有分批的 logits 拼接回来
+        # 顺着第 0 维拼接
         logits = torch.cat(logits_chunks, dim=0)
         # -----------------------------------------------------------------
 
-        # 用 logits 还原空间对齐
-        out_mat = logits.view(
+        out_mat = logits.reshape(
             batch_size, num_rows, num_cols, step_len, self.num_classes
         )
         out_mat = out_mat.permute(0, 4, 3, 1, 2).contiguous()
-        return out_mat  # [B, num_classes, S, H, W]
+        return out_mat
 
     def encode(self, input_mat: Tensor4D):
         """混合编码管道"""
@@ -344,28 +341,27 @@ class RnnChunkShell(RnnShell):
         total_seqs = batch_size * num_rows * num_cols
 
         seq_mat = mat2seq(input_mat).to(torch.int64)
-        # [S, B * H * W, embed_size]
         embedding_seq = self.embedding_encoder(seq_mat).permute(1, 0, 2)
 
-        # 分批（Chunking）通过 Encoder
+        # -----------------------------------------------------------------
+        # 分批通过 Encoder
+        # -----------------------------------------------------------------
         state_seq_chunks = []
         for i in range(0, total_seqs, self.chunk_size):
             emb_seq_chunk = embedding_seq[:, i : i + self.chunk_size, :]
-
-            # chunk_state -> [num_layers, chunk_size, hidden_size]
             chunk_state = self.seq_encoder(emb_seq_chunk)
             state_seq_chunks.append(chunk_state)
 
-        # 在第 1 维（B * H * W 维度）将所有分批的隐状态拼接回来
+        # 顺着第 1 维拼接，此时 state_seq 底层内存已不连续
         state_seq = torch.cat(state_seq_chunks, dim=1)
         # -----------------------------------------------------------------
 
-        # 转换并组装空间 4D 特征
-        state_mat = state_seq.view(
+        state_mat = state_seq.reshape(
             self.num_layers, batch_size, num_rows, num_cols, self.hidden_size
         )
+
         state_mat = state_mat.permute(1, 0, 4, 2, 3).contiguous()
-        state_mat = state_mat.view(
+        state_mat = state_mat.reshape(
             batch_size, self.num_layers * self.hidden_size, num_rows, num_cols
         )
 

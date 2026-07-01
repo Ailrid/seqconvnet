@@ -24,8 +24,8 @@ register_systems(virid)
 # 点火启动
 TrainingLightingMessage.send(
     dataset_params=DatasetParameters(
-        train_las_folder="preprocessed/dales_las/train",
-        test_las_folder="preprocessed/dales_las/test",
+        train_las_folder="preprocessed/experiment/train",
+        test_las_folder="preprocessed/experiment/test",
         # classes从1开始，总共8个权重
         num_classes=8,
         classes_weights=[
@@ -64,17 +64,17 @@ TrainingLightingMessage.send(
     ),
     model_params=ModelParameters(
         checkpoint_folder=None,
-        model_type="transformer",
+        model_type="rnn",
         d_model=16,  # transformer 的 d_model 或者 rnn 的 hidden_size
         nhead=2,  # transformer 的 nhead
         num_layers=2,  # transformer 的 num_layers
         dropout=0.1,
     ),
     env_params=EnvParameters(
-        lr=5e-4,
+        lr=1e-4,
         epochs=100,
         warmup_epochs=3,
-        weight_decay=1e-3,
+        weight_decay=1e-1,
         device="cuda:0",
     ),
 )

@@ -19,7 +19,7 @@ from seqconvnet.core import (
     RnnClassifier,
     RnnDecoder,
     RnnEncoder,
-    RnnShell,
+    RnnChunkShell,
     SegmentationEvaluator,
     TestLoader,
     TrainLoader,
@@ -245,7 +245,7 @@ def create_rnn_model(
         model_params.d_model,
     )
 
-    model = RnnShell(
+    model = RnnChunkShell(
         encoder_embedding,
         decoder_embedding,
         seq_encoder,
